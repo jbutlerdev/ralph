@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "searxng": {
+      "type": "stdio",
+      "command": "pipx",
+      "args": [
+        "run",
+        "searxng-simple-mcp"
+      ],
+      "env": {
+        "SEARXNG_MCP_SEARXNG_URL": "https://search.butler.ooo"
+      }
+    }
+  }
+}
