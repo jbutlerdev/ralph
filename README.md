@@ -1,166 +1,209 @@
-# Ralph TUI Orchestrator
+# Ralph
 
-A Terminal User Interface (TUI) for orchestrating the Ralph Wiggum technique—an autonomous AI-driven development methodology powered by Claude.
-
-## What is Ralph?
-
-Ralph Wiggum is a development methodology that transforms AI from a pair programmer into a relentless worker. The core philosophy: **keep running the same prompt over and over until the task is complete.**
-
-This TUI provides the tooling to harness that power with structure, visibility, and control.
-
-## Features
-
-- **Planning Mode**: Collaborate with AI to create specs and implementation plans
-- **Implementation Mode**: Execute tasks autonomously with commit-at-boundary reviews
-- **Branching & Exploration**: Fork from any commit to explore alternative implementations
-- **Diff Reviews**: Line-by-line review with inline comments
-- **Git-Native**: All state managed via git worktrees for true parallelism
-
-## Quick Start
-
-```bash
-# Install
-npm install -g @ralph/tui
-
-# Start a new project
-ralph init my-project
-cd my-project
-
-# Open existing project
-ralph open
-```
-
-## How It Works
-
-### 1. Planning Phase
-
-```
-You describe what you want to build
-  ↓
-AI asks clarifying questions
-  ↓
-AI generates specs/[topic].md files
-  ↓
-You review and refine specs
-  ↓
-AI generates IMPLEMENTATION_PLAN.md
-  ↓
-You review, reorder, and approve the plan
-```
-
-### 2. Implementation Phase
-
-```
-AI selects next task from plan
-  ↓
-Creates checkpoint, executes task
-  ↓
-Creates commit at completion
-  ↓
-You review the diff
-  ↓
-Choose: Approve | Iterate | Fork
-  ↓
-Repeat until all tasks complete
-```
-
-### 3. Forking
-
-At any review point, you can:
-- **Approve**: Accept changes and continue
-- **Iterate**: Provide feedback, AI continues in same branch
-- **Fork**: Create new branch to explore alternative approach
-
-Forks are full git branches with their own worktrees and AI sessions.
-
-## Project Structure
-
-```
-my-project/
-├── specs/                    # Requirement specifications
-│   ├── database.md
-│   ├── authentication.md
-│   └── api.md
-├── IMPLEMENTATION_PLAN.md    # AI-generated task list
-└── .ralph/                   # Runtime state (gitignored)
-    ├── sessions/             # Session metadata
-    ├── checkpoints/          # File checkpoints
-    └── comments/             # Diff comments
-```
-
-## Keyboard Shortcuts
-
-### Global
-- `Ctrl+C` - Quit (with confirmation)
-- `?` - Show help
-- `Tab` - Cycle focus
-
-### Planning
-- `n` - New task
-- `e` - Edit task
-- `Ctrl+A` - Approve plan
-
-### Implementation
-- `Space` - Pause/resume
-- `f` - Fork current work
-
-### Review
-- `j/k` - Navigate diff
-- `a` - Approve
-- `i` - Iterate with feedback
-- `f` - Fork from this commit
-- `c` - Add comment
-
-## Configuration
-
-Create `~/.ralph/config.json`:
-
-```json
-{
-  "theme": "default",
-  "keyBindings": "vim",
-  "autoSave": true,
-  "maxParallelTasks": 3
-}
-```
+A server-based AI development orchestrator powered by the "Ralph Wiggum technique" - run the same AI prompt repeatedly until tasks are complete, with git-backed branching for exploration and structured review at commit boundaries.
 
 ## Architecture
 
-Built with:
-- **ink** - React for CLIs
-- **zustand** - State management
-- **@anthropic-ai/claude-agent-sdk** - Claude integration
-- **simple-git** - Git worktree management
+Ralph consists of three main components:
 
-See [specs/](specs/) for detailed architecture documentation.
+### 1. Ralph Server
+
+A TypeScript server that uses the Claude Code SDK to implement plans using the Ralph Wiggum methodology.
+
+**Location:** `src/server.ts`
+
+**Features:**
+- HTTP API for plan execution
+- Session management with persistent state
+- Git-based branching and checkpointing
+- Real-time status updates
+
+**API Endpoints:**
+- `POST /execute` - Start plan execution
+- `GET /status/:sessionId` - Check execution status
+- `GET /plans` - List available plans
+- `GET /plans/:planId` - Get plan details
+- `GET /sessions` - List active sessions
+- `GET /health` - Health check
+
+**Usage:**
+```bash
+# Build the project
+npm run build
+
+# Start the server
+npm run server
+
+# CLI mode
+ralph run [plan]
+
+# Server mode
+ralph server --port 3001
+```
+
+### 2. Plan Generator Skill
+
+A Claude Code skill that generates structured implementation plans from requirements.
+
+**Location:** `skills/ralph-plan-generator.skill.ts` (re-exports from `src/plan-generator.ts`)
+
+**Features:**
+- Parses requirements into structured tasks
+- Auto-generates task IDs and dependencies
+- Validates plan structure
+- Supports markdown export/import
+
+**Usage:**
+```
+Use the ralph-plan-generator skill to create an implementation plan from your requirements.
+```
+
+### 3. Plan Sender / Executor Skill
+
+A Claude Code skill that sends plans to the Ralph server for execution.
+
+**Location:** `.claude/skills/ralph-executor/ralph-executor.skill.ts` (contains server client logic)
+
+**Features:**
+- Submits plans to Ralph server
+- Tracks execution progress
+- Retrieves task results
+- Handles errors and retries
+
+**Usage:**
+```
+Use the ralph-executor skill to send a plan to the server and monitor execution.
+```
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- npm or yarn
+- Git
+- Claude Code CLI (for task execution)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/ralph.git
+cd ralph
+
+# Install dependencies
+npm install
+
+# Build the project
+npm run build
+```
+
+### Running the Server
+
+```bash
+# Development mode (watch mode)
+npm run watch
+
+# Build for production
+npm run build
+
+# Start server
+npm run server
+
+# Or start CLI mode
+npm start
+```
+
+### Using the Skills
+
+1. **Generate a Plan:**
+   - In Claude Code, invoke the `ralph-plan-generator` skill
+   - Provide your requirements
+   - Review and edit the generated plan
+
+2. **Execute the Plan:**
+   - Invoke the `ralph-executor` skill
+   - Select your plan
+   - Monitor execution progress
 
 ## Development
 
-```bash
-git clone <repo>
-cd ralph
-npm install
-npm run dev
+### Project Structure
+
 ```
+ralph/
+├── src/                      # Main source code
+│   ├── types/              # TypeScript type definitions
+│   │   └── index.ts
+│   ├── plan-generator.ts     # Plan parsing and validation
+│   ├── executor.ts           # Core execution logic
+│   ├── server.ts            # HTTP API server
+│   └── cli.ts               # CLI entry point
+├── skills/                   # Claude Code skills
+│   └── ralph-plan-generator.skill.ts
+├── .claude/skills/            # Internal skills
+│   └── ralph-executor/    # Server client skill
+├── plans/                    # Generated plans
+├── dist/                     # Compiled output
+├── tsconfig.json
+└── package.json
+```
+
+### Technology Stack
+
+- **Language:** TypeScript 5.x
+- **AI SDK:** @anthropic-ai/claude-agent-sdk v0.2.8
+- **Server:** Express 5.2.1
+- **Git:** simple-git v3.22.0
+- **Testing:** Vitest v4.0.17
+
+### Configuration
+
+Server configuration can be set via CLI flags:
+
+```bash
+ralph server --port 3001 --host localhost
+```
+
+### CLI Commands
+
+```bash
+# Run a plan
+ralph run [plan-path]
+
+# List available plans
+ralph list
+
+# Show execution status
+ralph status
+
+# Start server mode
+ralph server [options]
+```
+
+## The Ralph Wiggum Technique
+
+The core philosophy: run the same AI prompt repeatedly until tasks are complete, with git-backed branching for exploration and structured review at commit boundaries.
+
+### How It Works
+
+1. **Planning** - Generate structured implementation plans
+2. **Execution** - Execute tasks one at a time with AI
+3. **Review** - Review changes at commit boundaries
+4. **Iteration** - Iterate or fork as needed
+
+### Benefits
+
+- Structured, autonomous AI-driven development
+- Git-backed safety with easy rollbacks
+- Parallel exploration through branching
+- Clear audit trail of all changes
 
 ## Documentation
 
-- [Overview](specs/overview.md)
-- [Architecture](specs/architecture.md)
-- [Planning Spec](specs/planning-spec.md)
-- [Implementation Spec](specs/implementation-spec.md)
-- [UI Spec](specs/ui-spec.md)
-- [Task List](specs/tasks.md)
-
-## Philosophy
-
-> "Move from one-shot perfection to iteration over perfection."
-
-Ralph embraces that AI will make mistakes. The technique provides:
-- Continuous course correction through iteration
-- Clear boundaries for review and intervention
-- Git-backed safety net for exploration
-- Eventual consistency through persistent refinement
+- [CLAUDE.md](./CLAUDE.md) - Detailed project instructions for Claude Code
+- [ralph-wiggum-technique.md](./ralph-wiggum-technique.md) - Methodology deep dive
+- [skills/ralph-plan-generator.md](./skills/ralph-plan-generator.md) - Plan generator documentation
 
 ## License
 

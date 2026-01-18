@@ -1,0 +1,286 @@
+# Implementation Plan
+
+## Overview
+
+Create a Web UI for Ralph that displays generated implementation plans, their tasks, and the status of those tasks. The UI will provide a visual interface for monitoring progress, viewing task details, and managing the Ralph autonomous development loop.
+
+**Project:** Ralph Web UI
+**Total Tasks:** 12
+**Estimated Duration:** 5-7 days
+
+---
+
+## Tasks
+
+### Task 1: Initialize Web UI project with Next.js
+**ID:** task-001
+**Priority:** high
+**Dependencies:**
+
+**Description:**
+Create a new Next.js 14 project with TypeScript, Tailwind CSS, and shadcn/ui components. Set up the project structure with proper configuration for a modern React application. The project will use App Router for the latest Next.js features.
+
+**Acceptance Criteria:**
+- [ ] `web-ui/` directory created with Next.js project (using `npx create-next-app@latest`)
+- [ ] TypeScript configured with strict mode
+- [ ] Tailwind CSS installed and configured
+- [ ] shadcn/ui initialized with default components
+- [ ] package.json includes: next@14, react@18, typescript, tailwindcss
+- [ ] Dev server runs successfully on port 3000
+- [ ] Project builds without errors: `npm run build`
+
+**Complexity:** 2
+**Tags:** ["setup", "nextjs", "typescript"]
+
+---
+
+### Task 2: Create Ralph plan data utilities and types
+**ID:** task-002
+**Priority:** high
+**Dependencies:** task-001
+
+**Description:**
+Create TypeScript utilities for reading and parsing Ralph implementation plans. Copy and adapt the `RalphPlan` and `RalphTask` interfaces from the ralph-plan-generator skill. Implement functions to read `IMPLEMENTATION_PLAN.md` files and parse them into structured data objects.
+
+**Acceptance Criteria:**
+- [ ] `web-ui/src/lib/ralph/types.ts` exists with RalphPlan, RalphTask interfaces
+- [ ] `web-ui/src/lib/ralph/parser.ts` exists with plan parsing functions
+- [ ] Functions: `planFromMarkdown()`, `calculateProgress()`, `getNextTask()`, `sortTasksByDependencies()`
+- [ ] Unit tests for parser utilities in `web-ui/src/lib/ralph/__tests__/parser.test.ts`
+- [ ] All tests pass with >80% coverage
+
+**Spec Reference:** [Utilities](specs/web-ui-utilities.md)
+**Complexity:** 3
+**Tags:** ["typescript", "utilities", "parsing"]
+
+---
+
+### Task 3: Implement file system API for reading plans
+**ID:** task-003
+**Priority:** high
+**Dependencies:** task-002
+
+**Description:**
+Create Next.js API routes to read Ralph implementation plans from the file system. The API should support listing all available plans (by searching for `IMPLEMENTATION_PLAN.md` files) and reading individual plan details. Include error handling for missing or malformed files.
+
+**Acceptance Criteria:**
+- [ ] `web-ui/src/app/api/plans/route.ts` exists - GET /api/plans lists all plans
+- [ ] `web-ui/src/app/api/plans/[id]/route.ts` exists - GET /api/plans/[id] returns specific plan
+- [ ] API returns JSON with plan data including tasks and metadata
+- [ ] Error handling for missing plans returns 404 with clear message
+- [ ] Parsing errors return 400 with validation details
+- [ ] API responses include CORS headers for local development
+- [ ] API tested with curl/Postman
+
+**Complexity:** 3
+**Tags:** ["api", "nextjs", "filesystem"]
+
+---
+
+### Task 4: Create task status tracking system
+**ID:** task-004
+**Priority:** high
+**Dependencies:** task-002
+
+**Description:**
+Implement a task status tracking system that reads Ralph's `.ralph/` runtime state to determine task completion status. The system should parse session data, commit history, and checkpoint information to determine which tasks are completed, in progress, or pending.
+
+**Acceptance Criteria:**
+- [ ] `web-ui/src/lib/ralph/status.ts` exists with status tracking functions
+- [ ] Function `getTaskStatus(plan: RalphPlan, projectPath: string): Map<string, TaskStatus>` implemented
+- [ ] TaskStatus enum: 'pending', 'in-progress', 'completed', 'blocked', 'failed'
+- [ ] Reads `.ralph/sessions/` JSON files for session state
+- [ ] Reads git commits to detect task completion markers
+- [ ] Handles missing `.ralph/` directory gracefully
+- [ ] Unit tests for status determination logic
+
+**Complexity:** 4
+**Tags:** ["state", "tracking", "filesystem"]
+
+---
+
+### Task 5: Build plan list page with project cards
+**ID:** task-005
+**Priority:** medium
+**Dependencies:** task-003
+
+**Description:**
+Create the main dashboard page that displays all available Ralph projects with their implementation plans. Each project card should show the project name, overview, task progress bar, and quick stats (total tasks, completed, pending). Cards should be clickable to navigate to project details.
+
+**Acceptance Criteria:**
+- [ ] `web-ui/src/app/page.tsx` renders PlanList component
+- [ ] `web-ui/src/components/PlanList.tsx` displays grid of project cards
+- [ ] `web-ui/src/components/PlanCard.tsx` shows: name, description, progress bar, stats
+- [ ] Progress bar shows percentage with visual color coding (green >80%, yellow 50-80%, red <50%)
+- [ ] Empty state shows message when no plans found
+- [ ] Loading state during API fetch
+- [ ] Error state with retry button
+- [ ] Responsive layout (1 col mobile, 2 col tablet, 3 col desktop)
+
+**Spec Reference:** [UI Components](specs/web-ui-components.md)
+**Complexity:** 3
+**Tags:** ["frontend", "nextjs", "components"]
+
+---
+
+### Task 6: Build plan detail page with task list
+**ID:** task-006
+**Priority:** high
+**Dependencies:** task-003, task-004
+
+**Description:**
+Create a detailed view page for a specific implementation plan. The page should display all tasks in a filterable/sortable list with their status, priority badges, dependency links, and acceptance criteria checkboxes. Include a project overview section and overall progress indicator.
+
+**Acceptance Criteria:**
+- [ ] `web-ui/src/app/plan/[id]/page.tsx` renders PlanDetail component
+- [ ] `web-ui/src/components/PlanDetail.tsx` shows plan overview and task list
+- [ ] `web-ui/src/components/TaskList.tsx` displays tasks with status indicators
+- [ ] `web-ui/src/components/TaskItem.tsx` shows: title, ID, status badge, priority badge, description
+- [ ] Task filtering: by status (All, Pending, In Progress, Completed)
+- [ ] Task sorting: by ID, priority, status, dependencies
+- [ ] Progress indicator at top showing completion percentage
+- [ ] Breadcrumb navigation back to plan list
+
+**Complexity:** 4
+**Tags:** ["frontend", "nextjs", "components"]
+
+---
+
+### Task 7: Build task detail modal/page
+**ID:** task-007
+**Priority:** medium
+**Dependencies:** task-006
+
+**Description:**
+Create a detailed view for individual tasks showing all task information including full description, all acceptance criteria, dependencies with links, complexity score, tags, and spec reference. Include a visual dependency graph showing which tasks this task depends on and which tasks depend on it.
+
+**Acceptance Criteria:**
+- [ ] `web-ui/src/components/TaskDetail.tsx` displays full task information
+- [ ] Shows: title, ID, status, priority, complexity, tags
+- [ ] Acceptance criteria displayed as checkboxes (checked if completed, unchecked if pending)
+- [ ] Dependencies section with links to parent tasks
+- [ ] "Dependent Tasks" section with links to child tasks
+- [ ] Spec reference link if present
+- [ ] Accessibility: proper ARIA labels, keyboard navigation
+- [ ] Modal dialog or dedicated page (decide on modal for quick access)
+
+**Spec Reference:** [UI Components](specs/web-ui-components.md)
+**Complexity:** 3
+**Tags:** ["frontend", "components", "accessibility"]
+
+---
+
+### Task 8: Implement dependency graph visualization
+**ID:** task-008
+**Priority:** low
+**Dependencies:** task-007
+
+**Description:**
+Add an interactive dependency graph visualization using React Flow or similar library. The graph should show all tasks as nodes with dependencies as edges, color-coded by status. Users can click nodes to navigate to task details. Include zoom, pan, and auto-layout features.
+
+**Acceptance Criteria:**
+- [ ] `web-ui/src/components/DependencyGraph.tsx` exists using React Flow
+- [ ] Nodes: tasks as boxes (color by status: green=completed, yellow=in-progress, gray=pending)
+- [ ] Edges: arrows showing dependency direction
+- [ ] Click node → navigate to task detail
+- [ ] Zoom and pan controls
+- [ ] Auto-layout button using Dagre layout algorithm
+- [ ] Legend showing status colors
+- [ ] Responsive container sizing
+
+**Complexity:** 4
+**Tags:** ["frontend", "visualization", "graph"]
+
+---
+
+### Task 9: Add real-time updates with polling
+**ID:** task-009
+**Priority:** medium
+**Dependencies:** task-006
+
+**Description:**
+Implement real-time updates for task status by polling the backend API. The UI should refresh task status periodically (configurable interval) to show progress as the Ralph loop executes tasks. Add a manual refresh button and show "last updated" timestamp.
+
+**Acceptance Criteria:**
+- [ ] `web-ui/src/lib/ralph/usePolling.ts` hook exists for polling logic
+- [ ] Configurable poll interval (default 5 seconds via environment variable)
+- [ ] Manual refresh button in UI with loading state
+- [ ] "Last updated" timestamp displayed on page
+- [ ] Optimistic updates: disable polling when tab is not visible
+- [ ] Error handling: retry with exponential backoff on API failures
+- [ ] Visual indicator when data is stale
+
+**Complexity:** 3
+**Tags:** ["frontend", "hooks", "realtime"]
+
+---
+
+### Task 10: Implement Web Socket for live updates (optional enhancement)
+**ID:** task-010
+**Priority:** low
+**Dependencies:** task-009
+
+**Description:**
+Add Web Socket support for real-time task updates instead of polling. Create a Node.js WebSocket server that watches the Ralph `.ralph/` directory for changes and broadcasts updates to connected clients. The UI will connect to the WebSocket and update task status instantly when changes occur.
+
+**Acceptance Criteria:**
+- [ ] `web-ui/server/ws-server.ts` WebSocket server exists
+- [ ] Server watches `.ralph/` directory for file changes using chokidar
+- [ ] Broadcasts messages on: task completion, session state change, checkpoint created
+- [ ] `web-ui/src/lib/ralph/useWebSocket.ts` hook for WebSocket connection
+- [ ] Graceful fallback to polling if WebSocket unavailable
+- [ ] Connection status indicator in UI
+- [ ] Auto-reconnect on disconnect with exponential backoff
+
+**Complexity:** 5
+**Tags:** ["backend", "websocket", "realtime"]
+
+---
+
+### Task 11: Add theme support and responsive design polish
+**ID:** task-011
+**Priority:** low
+**Dependencies:** task-006
+
+**Description:**
+Implement comprehensive theme support (light/dark mode) using next-themes. Polish responsive design across all pages ensuring great UX on mobile, tablet, and desktop. Add smooth transitions and consistent spacing.
+
+**Acceptance Criteria:**
+- [ ] next-themes configured with system preference detection
+- [ ] Theme toggle button in navigation header
+- [ ] Dark mode colors defined for all components (using CSS variables)
+- [ ] Mobile breakpoint (<640px) optimized layouts
+- [ ] Tablet breakpoint (640-1024px) optimized layouts
+- [ ] Desktop breakpoint (>1024px) optimized layouts
+- [ ] Smooth transitions for theme changes
+- [ ] Tested on actual devices or browser devtools device emulation
+
+**Complexity:** 2
+**Tags:** ["frontend", "ui", "theme"]
+
+---
+
+### Task 12: Write E2E tests and deployment documentation
+**ID:** task-012
+**Priority:** medium
+**Dependencies:** task-006, task-007
+
+**Description:**
+Write end-to-end tests using Playwright for critical user flows. Create deployment documentation for Vercel, Docker, and local development. Ensure the Web UI can be easily deployed and run in different environments.
+
+**Acceptance Criteria:**
+- [ ] Playwright tests for: view plans, view plan details, view task details, filter tasks
+- [ ] `web-ui/e2e/` directory with test files
+- [ ] All E2E tests pass: `npm run test:e2e`
+- [ ] `web-ui/DEPLOYMENT.md` documentation exists
+- [ ] Vercel deployment configuration (`vercel.json`)
+- [ ] Dockerfile for containerized deployment
+- [ ] Environment variable template (`.env.example`)
+- [ ] Local development quick start guide
+
+**Complexity:** 3
+**Tags:** ["testing", "documentation", "deployment"]
+
+---
+
+*Generated on 2025-01-17*
