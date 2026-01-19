@@ -23,6 +23,7 @@ interface CliOptions {
   resume?: boolean;
   'no-commit'?: boolean;
   'auto-test'?: boolean;
+  'require-acceptance-criteria'?: boolean;
   'test-command'?: string;
   dryRun?: boolean;
   verbose?: boolean;
@@ -49,6 +50,7 @@ async function main() {
     .option('-r, --resume', 'Resume from previous session')
     .option('--no-commit', 'Disable automatic git commits')
     .option('--auto-test', 'Run tests after each task completion')
+    .option('--require-acceptance-criteria', 'Fail tasks when acceptance criteria are not verified')
     .option('--test-command <cmd>', 'Test command to run (default: npm run test:run)', 'npm run test:run')
     .option('--dry-run', 'Dry run - show what would be executed without actually running')
     .option('-v, --verbose', 'Verbose output')
@@ -97,6 +99,7 @@ async function main() {
     .option('-d, --directory <path>', 'Project root directory (default: current directory)')
     .option('--no-commit', 'Disable automatic git commits')
     .option('--auto-test', 'Run tests after task completion')
+    .option('--require-acceptance-criteria', 'Fail tasks when acceptance criteria are not verified')
     .action(async (options: CliOptions & { port?: string; host?: string }) => {
       try {
         const config: ServerConfig = {
@@ -105,6 +108,7 @@ async function main() {
           projectRoot: path.resolve(options.directory || process.cwd()),
           autoCommit: !options['no-commit'],
           autoTest: options['auto-test'] || false,
+          requireAcceptanceCriteria: options['require-acceptance-criteria'] || false,
         };
         await startServer(config);
       } catch (error) {
@@ -194,6 +198,7 @@ async function executePlan(planArg: string | undefined, options: CliOptions) {
     resume: options.resume || false,
     autoCommit: options['no-commit'] !== true,
     autoTest: options['auto-test'] || false,
+    requireAcceptanceCriteria: options['require-acceptance-criteria'] || false,
     testCommand: options['test-command'],
     maxRetries: Number(options['max-retries'] || 3),
     maxParallelTasks: Number(options['max-parallel'] || 1),

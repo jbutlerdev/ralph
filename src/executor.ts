@@ -80,6 +80,7 @@ export class RalphExecutor {
       maxParallelTasks: 1,
       autoCommit: true,
       autoTest: false,
+      requireAcceptanceCriteria: false,
       testCommand: 'npm run test:run',
       stateDir: '.ralph/sessions',
       resume: false,
@@ -400,6 +401,13 @@ export class RalphExecutor {
       output: finalResult || `Executed task ${task.id}`,
     };
 
+    // Fail the task if acceptance criteria are required but not met
+    if (this.options.requireAcceptanceCriteria && verification.failed.length > 0) {
+      throw new Error(
+        `Acceptance criteria not met:\n${verification.failed.map(f => `  - ${f}`).join('\n')}`
+      );
+    }
+
     return result;
   }
 
@@ -662,14 +670,17 @@ export async function verifyAcceptanceCriteria(
 }
 
 /**
- * Verify a single acceptance criterion
+ * Verify a single acceptance criterion using Claude Code SDK
  */
 async function verifyCriterion(criterion: string, projectRoot: string): Promise<boolean> {
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
   const fs = await import('fs/promises');
   const path = await import('path');
   const { spawn } = await import('child_process');
 
   const trimmed = criterion.trim();
+
+  // Fast-path checks for common patterns (avoid SDK overhead)
 
   // Pattern 1: "X exists" or "X file exists" -> check file/path existence
   const existsMatch = trimmed.match(/^(.+?)(?:\s+file)?\s+exists$/i);
@@ -703,24 +714,7 @@ async function verifyCriterion(criterion: string, projectRoot: string): Promise<
     });
   }
 
-  // Pattern 3: "X is defined" or "X function exists" -> check in codebase
-  const definedMatch = trimmed.match(/^(.+?)\s+(?:function|class|variable|const|let|var)\s+(?:is\s+)?defined$/i);
-  if (definedMatch) {
-    const searchTerm = definedMatch[1].trim();
-
-    // Search for the definition in ts/js files
-    const { exec } = await import('child_process');
-    return new Promise<boolean>((resolve) => {
-      exec(
-        `grep -r "${searchTerm}" ${projectRoot} --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" | head -1`,
-        (error, stdout) => {
-          resolve(!error && stdout.length > 0);
-        }
-      );
-    });
-  }
-
-  // Pattern 4: "X includes Y" -> check file contains content
+  // Pattern 3: "X includes Y" -> check file contains content
   const includesMatch = trimmed.match(/^(.+?)\s+includes\s+(.+)$/i);
   if (includesMatch) {
     const filePath = path.join(projectRoot, includesMatch[1].trim());
@@ -734,9 +728,8 @@ async function verifyCriterion(criterion: string, projectRoot: string): Promise<
     }
   }
 
-  // Pattern 5: Default - check if it's a file existence check
+  // Pattern 4: Single word - treat as file path
   if (!trimmed.includes(' ') && trimmed.length > 0) {
-    // Single word, treat as file path
     const filePath = path.join(projectRoot, trimmed);
     try {
       await fs.access(filePath);
@@ -746,8 +739,64 @@ async function verifyCriterion(criterion: string, projectRoot: string): Promise<
     }
   }
 
-  // Unknown pattern, can't verify
-  return false;
+  // For all other patterns, use Claude SDK for semantic verification
+  try {
+    const prompt = `# Acceptance Criterion Verification
+
+You are verifying whether the following acceptance criterion has been satisfied in the codebase.
+
+**Criterion to verify:**
+${criterion}
+
+**Instructions:**
+1. Explore the codebase to understand what has been implemented
+2. Determine if the criterion has been satisfied
+3. Return ONLY "true" if satisfied, or "false" if not satisfied
+
+**Important:**
+- Be thorough - check files, run tests if needed, examine the actual implementation
+- If the criterion mentions something "exists", "is created", "is implemented", etc., verify it actually exists
+- If the criterion mentions functionality, verify the code implements it
+- Return your answer as a single word: either "true" or "false" (lowercase, no punctuation)`;
+
+    const sdkQuery = query({
+      prompt,
+      options: {
+        cwd: projectRoot,
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+        persistSession: false,
+        settingSources: ['project'],
+        tools: { type: 'preset', preset: 'claude_code' },
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append: '\n\nWhen verifying acceptance criteria, be thorough and precise. Return ONLY "true" or "false" as your final answer.',
+        },
+        maxTurns: 20,
+      },
+    });
+
+    let response = '';
+    for await (const message of sdkQuery) {
+      if (message.type === 'result') {
+        if (message.subtype === 'success') {
+          response = message.result || '';
+        } else if (message.subtype === 'error_during_execution') {
+          console.warn(`  [WARNING] SDK error during verification: ${message.errors.join(', ')}`);
+          return false;
+        }
+      }
+    }
+
+    // Parse the response - look for true/false
+    const normalized = response.toLowerCase().trim();
+    return normalized === 'true' || normalized.startsWith('true') || normalized.includes('\ntrue');
+  } catch (error) {
+    console.warn(`  [WARNING] Verification failed for criterion: "${criterion}"`);
+    console.warn(`  [WARNING] Error: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
 }
 
 /**

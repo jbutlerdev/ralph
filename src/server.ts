@@ -38,6 +38,7 @@ export interface ServerConfig {
   projectRoot: string;
   autoCommit?: boolean;
   autoTest?: boolean;
+  requireAcceptanceCriteria?: boolean;
   maxRetries?: number;
   maxParallel?: number;
 }
@@ -51,6 +52,7 @@ export interface ExecutionRequest {
   resume?: boolean;
   noCommit?: boolean;
   autoTest?: boolean;
+  requireAcceptanceCriteria?: boolean;
   dryRun?: boolean;
   maxRetries?: number;
   maxParallel?: number;
@@ -199,6 +201,7 @@ function createApp(config: ServerConfig): express.Application {
         projectRoot,
         autoCommit: !body.noCommit && config.autoCommit,
         autoTest: body.autoTest || config.autoTest,
+        requireAcceptanceCriteria: body.requireAcceptanceCriteria || config.requireAcceptanceCriteria,
         maxRetries: body.maxRetries || config.maxRetries || 3,
         maxParallelTasks: body.maxParallel || config.maxParallel || 1,
       };
@@ -397,6 +400,8 @@ export async function main() {
       config.autoCommit = true;
     } else if (arg === '--auto-test') {
       config.autoTest = true;
+    } else if (arg === '--require-acceptance-criteria') {
+      config.requireAcceptanceCriteria = true;
     } else if (arg === '--help' || arg === '-h') {
       console.log(`
 Ralph Executor Server
@@ -410,6 +415,7 @@ Options:
   --directory <path>    Project root directory (default: current directory)
   --auto-commit         Enable automatic git commits
   --auto-test           Run tests after task completion
+  --require-acceptance-criteria  Fail tasks when acceptance criteria are not verified
   --help, -h            Show this help message
 
 API Usage:
@@ -422,7 +428,7 @@ API Usage:
   # Start execution
   curl -X POST http://localhost:3001/execute \\
     -H "Content-Type: application/json" \\
-    -d '{"plan": "plans/web-ui/IMPLEMENTATION_PLAN.md"}'
+    -d '{"plan": "plans/web-ui/IMPLEMENTATION_PLAN.md", "requireAcceptanceCriteria": true}'
 
   # Check execution status
   curl http://localhost:3001/status/session-1234567890
