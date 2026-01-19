@@ -1,6 +1,7 @@
 'use client';
 
-import { useWebSocket, type WSConnectionState } from '@/lib/ralph';
+import { useWebSocket } from '@/lib/ralph/useWebSocket';
+import type { WSConnectionState } from '@/lib/ralph/useWebSocket';
 import { cn } from '@/lib/utils';
 import { Wifi, WifiOff, Loader2, AlertCircle } from 'lucide-react';
 import { forwardRef, HTMLAttributes } from 'react';

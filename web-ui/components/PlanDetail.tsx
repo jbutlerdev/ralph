@@ -20,7 +20,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { RalphTask } from '@/lib/plan-utils';
-import { usePolling, useWebSocket } from '@/lib/ralph';
+import { usePolling, type UsePollingResult } from '@/lib/ralph/usePolling';
+import { useWebSocket } from '@/lib/ralph/useWebSocket';
 import { ConnectionStatus } from './ConnectionStatus';
 
 export interface PlanDetailData {
@@ -68,7 +69,7 @@ export function PlanDetail({ planId }: { planId: string }) {
   const [viewMode, setViewMode] = useState<'list' | 'graph'>('list');
 
   // Use WebSocket for real-time updates with polling fallback
-  const { connectionState, usingFallback, polling, lastMessage } = useWebSocket({
+  const { connectionState, usingFallback, lastMessage } = useWebSocket({
     fallbackToPolling: true,
     pollingInterval: parseInt(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS || '5000', 10),
     pollingFetcher: async () => {
@@ -80,8 +81,8 @@ export function PlanDetail({ planId }: { planId: string }) {
     },
   });
 
-  // Use the appropriate polling result
-  const pollingResult = usingFallback ? polling : usePolling<PlanDetailApiResponse>({
+  // Always call usePolling, but only enable when using fallback
+  const pollingResult = usePolling<PlanDetailApiResponse>({
     fetcher: async () => {
       const res = await fetch(`/api/plans/${planId}`);
       if (!res.ok) {
@@ -92,9 +93,12 @@ export function PlanDetail({ planId }: { planId: string }) {
     interval: parseInt(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS || '5000', 10),
     pollOnlyWhenVisible: true,
     staleTime: 60000,
-    enabled: false, // Disabled when using WebSocket
+    enabled: usingFallback,
   });
 
+  const lastMessageAt = lastMessage ? new Date(lastMessage.timestamp) : null;
+
+  // Use WebSocket or polling result
   const {
     data: response,
     loading,
@@ -104,24 +108,24 @@ export function PlanDetail({ planId }: { planId: string }) {
     isPaused,
     refresh,
     togglePause,
-  } = usingFallback && pollingResult ? pollingResult : {
-    data: null,
-    loading: false,
-    error: null,
-    lastUpdated: lastMessageAt,
-    isStale: false,
-    isPaused: false,
-    refresh: async () => {
-      const res = await fetch(`/api/plans/${planId}`);
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
-      return;
-    },
-    togglePause: () => {},
-  };
-
-  const lastMessageAt = lastMessage ? new Date(lastMessage.timestamp) : null;
+  }: UsePollingResult<PlanDetailApiResponse> = usingFallback
+    ? pollingResult
+    : ({
+        data: lastMessage?.data || null,
+        loading: false,
+        error: null,
+        lastUpdated: lastMessageAt,
+        isStale: false,
+        isPaused: false,
+        refresh: async () => {
+          const res = await fetch(`/api/plans/${planId}`);
+          if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`);
+          }
+          return;
+        },
+        togglePause: () => {},
+      } as UsePollingResult<PlanDetailApiResponse>);
 
   const plan = response?.plan || null;
 
