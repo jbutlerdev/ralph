@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { TaskList } from './TaskList';
 import { DependencyGraph } from './DependencyGraph';
@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { RalphTask } from '@/lib/plan-utils';
+import { usePolling, useWebSocket } from '@/lib/ralph';
+import { ConnectionStatus } from './ConnectionStatus';
 
 export interface PlanDetailData {
   id: string;
@@ -47,9 +49,6 @@ interface PlanDetailApiResponse {
   warnings?: string[];
 }
 
-// Stale data threshold (60 seconds)
-const STALE_TIME_MS = 60000;
-
 /**
  * PlanDetail component
  *
@@ -58,103 +57,73 @@ const STALE_TIME_MS = 60000;
  * - Progress indicator
  * - Filterable/sortable task list
  * - Breadcrumb navigation
- * - Real-time updates via polling
+ * - Real-time updates via WebSocket (with polling fallback)
+ * - Connection status indicator
  * - Manual refresh button with loading state
  * - Last updated timestamp
  * - Stale data indicator
+ * - Pause/Resume polling (when using fallback)
  */
 export function PlanDetail({ planId }: { planId: string }) {
-  const [plan, setPlan] = useState<PlanDetailData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'graph'>('list');
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [manualRefreshing, setManualRefreshing] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [pollInterval] = useState(
-    () => parseInt(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS || '5000', 10)
-  );
 
-  const isStale = lastUpdated
-    ? Date.now() - lastUpdated.getTime() > STALE_TIME_MS
-    : true;
-
-  const fetchPlan = async (manual = false) => {
-    try {
-      if (manual) {
-        setManualRefreshing(true);
-      } else {
-        setLoading(true);
+  // Use WebSocket for real-time updates with polling fallback
+  const { connectionState, usingFallback, polling, lastMessage } = useWebSocket({
+    fallbackToPolling: true,
+    pollingInterval: parseInt(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS || '5000', 10),
+    pollingFetcher: async () => {
+      const res = await fetch(`/api/plans/${planId}`);
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
       }
-      setError(null);
+      return res.json();
+    },
+  });
 
-      const response = await fetch(`/api/plans/${planId}`);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+  // Use the appropriate polling result
+  const pollingResult = usingFallback ? polling : usePolling<PlanDetailApiResponse>({
+    fetcher: async () => {
+      const res = await fetch(`/api/plans/${planId}`);
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
       }
+      return res.json();
+    },
+    interval: parseInt(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS || '5000', 10),
+    pollOnlyWhenVisible: true,
+    staleTime: 60000,
+    enabled: false, // Disabled when using WebSocket
+  });
 
-      const data: PlanDetailApiResponse = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to fetch plan');
+  const {
+    data: response,
+    loading,
+    error,
+    lastUpdated,
+    isStale,
+    isPaused,
+    refresh,
+    togglePause,
+  } = usingFallback && pollingResult ? pollingResult : {
+    data: null,
+    loading: false,
+    error: null,
+    lastUpdated: lastMessageAt,
+    isStale: false,
+    isPaused: false,
+    refresh: async () => {
+      const res = await fetch(`/api/plans/${planId}`);
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
       }
-
-      setPlan(data.plan || null);
-      setLastUpdated(new Date());
-    } catch (err) {
-      console.error('Error fetching plan:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load plan');
-    } finally {
-      setLoading(false);
-      setManualRefreshing(false);
-    }
+      return;
+    },
+    togglePause: () => {},
   };
 
-  const handleManualRefresh = () => {
-    fetchPlan(true);
-  };
+  const lastMessageAt = lastMessage ? new Date(lastMessage.timestamp) : null;
 
-  const togglePause = () => {
-    setIsPaused(prev => !prev);
-  };
-
-  useEffect(() => {
-    fetchPlan();
-
-    let intervalId: NodeJS.Timeout | null = null;
-
-    // Only set up polling if not paused
-    if (!isPaused) {
-      intervalId = setInterval(() => {
-        fetchPlan();
-      }, pollInterval);
-    }
-
-    // Handle visibility changes to pause/resume polling
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        setIsPaused(true);
-        if (intervalId) {
-          clearInterval(intervalId);
-          intervalId = null;
-        }
-      } else if (isPaused) {
-        // Tab became visible and was paused - resume
-        setIsPaused(false);
-        fetchPlan(); // Fetch immediately on visibility
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [planId, pollInterval, isPaused]);
+  const plan = response?.plan || null;
 
   // Calculate progress (since tasks don't have status, we'll assume 0% for now)
   const progress = plan ? 0 : 0;
@@ -196,7 +165,7 @@ export function PlanDetail({ planId }: { planId: string }) {
             <AlertCircle className="h-6 w-6 text-red-600 dark:text-red-400" />
           </div>
           <h2 className="text-xl font-semibold mb-2">Failed to Load Plan</h2>
-          <p className="text-muted-foreground mb-4">{error || 'Plan not found'}</p>
+          <p className="text-muted-foreground mb-4">{error?.message || 'Plan not found'}</p>
           <Link href="/">
             <Button variant="outline">
               <ArrowLeft className="mr-2 h-4 w-4" />
@@ -229,6 +198,7 @@ export function PlanDetail({ planId }: { planId: string }) {
           <div className="space-y-1 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{plan.name}</h1>
+              <ConnectionStatus />
               {isStale && (
                 <div
                   className={cn(
@@ -273,14 +243,14 @@ export function PlanDetail({ planId }: { planId: string }) {
               )}
             </Button>
             <Button
-              onClick={handleManualRefresh}
+              onClick={() => refresh()}
               variant="outline"
               size="sm"
-              disabled={manualRefreshing}
+              disabled={loading}
               className="flex-1 sm:flex-none"
             >
               <RefreshCw
-                className={cn('mr-2 h-4 w-4', manualRefreshing && 'animate-spin')}
+                className={cn('mr-2 h-4 w-4', loading && 'animate-spin')}
               />
               Refresh
             </Button>

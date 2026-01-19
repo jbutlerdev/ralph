@@ -12,6 +12,32 @@
  * ```
  */
 
+// Export polling hook and types
+export {
+  usePolling,
+} from './usePolling';
+
+export type {
+  UsePollingOptions,
+  UsePollingResult,
+} from './usePolling';
+
+// Export WebSocket hook and types
+export {
+  useWebSocket,
+} from './useWebSocket';
+
+export type {
+  UseWebSocketOptions,
+  UseWebSocketResult,
+  WSConnectionState,
+  WSMessage,
+  WSMessageType,
+  TaskEventData,
+  SessionChangeData,
+  CheckpointData,
+} from './useWebSocket';
+
 // Export types
 export type {
   RalphTask,
@@ -23,7 +49,7 @@ export type {
   RalphExecutorOptions,
   ServerConfig,
   ExecutionRequest,
-} from './types.js';
+} from './types';
 
 // Export parser functions
 export {
@@ -35,7 +61,7 @@ export {
   filterByPriority,
   filterByTag,
   getTaskById,
-} from './parser.js';
+} from './parser';
 
 // Export status functions
 export {
@@ -44,20 +70,10 @@ export {
   getTasksByStatus,
   isRalphInitialized,
   getCurrentSession,
-} from './status.js';
+} from './status';
 
 // Export status types
 export type {
   TaskStatus,
   TaskStatusInfo,
-} from './status.js';
-
-// Export polling hook and types
-export {
-  usePolling,
-} from './usePolling.js';
-
-export type {
-  UsePollingOptions,
-  UsePollingResult,
-} from './usePolling.js';
+} from './status';
