@@ -50,6 +50,8 @@ export function TaskItem({
 
   return (
     <div
+      data-testid="task-item"
+      data-task-id={task.id}
       className={cn(
         'group rounded-lg border bg-card p-4 text-card-foreground shadow-sm transition-all',
         onClick && 'cursor-pointer hover:shadow-md hover:border-primary/50',

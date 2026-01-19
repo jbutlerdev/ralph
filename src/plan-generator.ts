@@ -4,7 +4,10 @@
  * Utilities for generating, parsing, and validating Ralph implementation plans.
  */
 
-import type { RalphPlan, RalphTask } from './types/index.js';
+import type { RalphPlan, RalphTask, TaskStatus } from './types/index.js';
+
+const VALID_STATUSES: TaskStatus[] = ['To Do', 'In Progress', 'Implemented', 'Needs Re-Work', 'Verified'];
+const DEFAULT_STATUS: TaskStatus = 'To Do';
 
 /**
  * Converts a Ralph plan to Markdown format for human review
@@ -22,6 +25,7 @@ export function planToMarkdown(plan: RalphPlan): string {
   for (const task of plan.tasks) {
     md += `### ${task.id}: ${task.title}\n\n`;
     md += `**ID:** ${task.id}\n`;
+    md += `**Status:** ${task.status}\n`;
     md += `**Priority:** ${task.priority}\n`;
     if (task.dependencies.length > 0) {
       md += `**Dependencies:** ${task.dependencies.join(', ')}\n`;
@@ -84,6 +88,7 @@ export function planFromMarkdown(markdown: string): RalphPlan {
         title: taskHeaderMatch[2],
         dependencies: [],
         acceptanceCriteria: [],
+        status: DEFAULT_STATUS,
       };
       continue;
     }
@@ -101,6 +106,19 @@ export function planFromMarkdown(markdown: string): RalphPlan {
     const priorityMatch = line.match(/\*\*Priority:\*\*\s*(high|medium|low)/i);
     if (priorityMatch) {
       currentTask.priority = priorityMatch[1].toLowerCase() as RalphTask['priority'];
+      continue;
+    }
+
+    // Parse status
+    const statusMatch = line.match(/\*\*Status:\*\*\s*(.+)$/i);
+    if (statusMatch) {
+      const statusValue = statusMatch[1].trim();
+      if (VALID_STATUSES.includes(statusValue as TaskStatus)) {
+        currentTask.status = statusValue as TaskStatus;
+      } else {
+        // Default to "To Do" if invalid status
+        currentTask.status = DEFAULT_STATUS;
+      }
       continue;
     }
 
@@ -207,6 +225,10 @@ export function validateRalphPlan(plan: RalphPlan): {
     }
     if (task.acceptanceCriteria.length === 0) {
       warnings.push(`Task ${task.id} has no acceptance criteria`);
+    }
+    // Validate status field
+    if (!task.status || !VALID_STATUSES.includes(task.status)) {
+      errors.push(`Task ${task.id} has invalid status: ${task.status}. Must be one of: ${VALID_STATUSES.join(', ')}`);
     }
   });
 
@@ -315,13 +337,40 @@ export function sortTasksByDependencies(tasks: RalphTask[]): RalphTask[] {
 
 /**
  * Gets the next pending task that has all dependencies met
+ * Tasks with status "Implemented", "Verified", or "In Progress" are considered already completed
+ * and will not be returned for execution
  */
 export function getNextTask(plan: RalphPlan, completedTaskIds: Set<string>): RalphTask | null {
   for (const task of plan.tasks) {
+    // Skip tasks that are already completed in the session
     const isCompleted = completedTaskIds.has(task.id);
-    const dependenciesMet = task.dependencies.every(dep => completedTaskIds.has(dep));
 
-    if (!isCompleted && dependenciesMet) {
+    // Skip tasks with terminal or in-progress status
+    // - "Implemented" and "Verified": already done, should not be executed
+    // - "In Progress": already being worked on, should not be executed
+    const shouldSkipStatus =
+      task.status === 'Implemented' ||
+      task.status === 'Verified' ||
+      task.status === 'In Progress';
+
+    const dependenciesMet = task.dependencies.every(dep => {
+      // Check if dependency is in completed tasks
+      if (completedTaskIds.has(dep)) return true;
+
+      // Check if dependency task has terminal or in-progress status
+      const depTask = plan.tasks.find(t => t.id === dep);
+      if (depTask && (
+        depTask.status === 'Implemented' ||
+        depTask.status === 'Verified' ||
+        depTask.status === 'In Progress'
+      )) {
+        return true;
+      }
+
+      return false;
+    });
+
+    if (!isCompleted && !shouldSkipStatus && dependenciesMet) {
       return task;
     }
   }
@@ -403,4 +452,84 @@ export async function listAllPlans(projectRoot: string = process.cwd()): Promise
   }
 
   return planNames;
+}
+
+/**
+ * Update the status of a task in a plan
+ * Returns a new plan object with the updated task
+ */
+export function updateTaskStatus(
+  plan: RalphPlan,
+  taskId: string,
+  newStatus: TaskStatus
+): RalphPlan {
+  const taskIndex = plan.tasks.findIndex(t => t.id === taskId);
+
+  if (taskIndex === -1) {
+    throw new Error(`Task ${taskId} not found in plan`);
+  }
+
+  if (!VALID_STATUSES.includes(newStatus)) {
+    throw new Error(`Invalid status: ${newStatus}. Must be one of: ${VALID_STATUSES.join(', ')}`);
+  }
+
+  const updatedTasks = [...plan.tasks];
+  updatedTasks[taskIndex] = {
+    ...updatedTasks[taskIndex],
+    status: newStatus,
+  };
+
+  return {
+    ...plan,
+    tasks: updatedTasks,
+  };
+}
+
+/**
+ * Filter tasks by status
+ */
+export function filterByStatus(plan: RalphPlan, status: TaskStatus): RalphTask[] {
+  return plan.tasks.filter(t => t.status === status);
+}
+
+/**
+ * Get tasks with terminal status (Implemented or Verified)
+ */
+export function getTerminalStatusTasks(plan: RalphPlan): RalphTask[] {
+  return plan.tasks.filter(t => t.status === 'Implemented' || t.status === 'Verified');
+}
+
+/**
+ * Get tasks that are ready to be executed
+ * (status is "To Do" or "Needs Re-Work", and all dependencies are met)
+ */
+export function getReadyTasks(plan: RalphPlan): RalphTask[] {
+  const terminalStatusTasks = new Set(
+    getTerminalStatusTasks(plan).map(t => t.id)
+  );
+
+  return plan.tasks.filter(task => {
+    const isReady = task.status === 'To Do' || task.status === 'Needs Re-Work';
+    if (!isReady) return false;
+
+    const dependenciesMet = task.dependencies.every(dep => {
+      return terminalStatusTasks.has(dep);
+    });
+
+    return dependenciesMet;
+  });
+}
+
+/**
+ * Check if a task status is terminal (no further action needed)
+ */
+export function isTerminalStatus(status: TaskStatus): boolean {
+  return status === 'Implemented' || status === 'Verified';
+}
+
+/**
+ * Check if a task status indicates it needs action (execution)
+ */
+export function isActionableStatus(status: TaskStatus): boolean {
+  return status === 'To Do' || status === 'Needs Re-Work';
 }

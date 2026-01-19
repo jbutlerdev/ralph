@@ -74,6 +74,7 @@ A Claude Code skill that generates structured implementation plans from requirem
 
 ### Task 1: Task Title
 **ID:** task-001
+**Status:** To Do | In Progress | Implemented | Needs Re-Work | Verified
 **Priority:** high|medium|low
 **Dependencies:** task-000
 

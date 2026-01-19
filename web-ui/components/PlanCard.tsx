@@ -43,6 +43,8 @@ export function PlanCard({
   return (
     <Link
       href={`/plan/${id}`}
+      data-testid="plan-card"
+      data-plan-id={id}
       className={cn(
         'block group relative overflow-hidden rounded-lg border bg-card p-6 text-card-foreground shadow-sm transition-all hover:shadow-md hover:border-primary/50',
         className

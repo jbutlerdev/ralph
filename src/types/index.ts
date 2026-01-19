@@ -5,6 +5,11 @@
  */
 
 /**
+ * Valid status values for a task in the plan
+ */
+export type TaskStatus = 'To Do' | 'In Progress' | 'Implemented' | 'Needs Re-Work' | 'Verified';
+
+/**
  * A single task in a Ralph implementation plan
  */
 export interface RalphTask {
@@ -17,6 +22,7 @@ export interface RalphTask {
   specReference?: string;      // Optional path to spec file
   estimatedComplexity?: 1 | 2 | 3 | 4 | 5; // 1=trivial, 5=complex
   tags?: string[];             // Optional tags for filtering/grouping
+  status: TaskStatus;          // Current status of the task (default: "To Do")
 }
 
 /**

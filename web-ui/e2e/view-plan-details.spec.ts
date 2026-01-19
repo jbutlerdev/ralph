@@ -162,7 +162,7 @@ test.describe('View Plan Details Page', () => {
 
     // Get the first task's ID before toggling
     const firstTaskBefore = page.getByTestId('task-item').first();
-    const taskIdBefore = await firstTaskBy.getAttribute('data-task-id');
+    const taskIdBefore = await firstTaskBefore.getAttribute('data-task-id');
 
     // Toggle sort order
     await sortToggle.click();

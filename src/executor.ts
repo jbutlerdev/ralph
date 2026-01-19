@@ -265,6 +265,7 @@ export class RalphExecutor {
 
     prompt += `**Task ID:** ${task.id}\n`;
     prompt += `**Title:** ${task.title}\n`;
+    prompt += `**Status:** ${task.status}\n`;
     prompt += `**Priority:** ${task.priority}\n\n`;
 
     if (task.dependencies.length > 0) {
@@ -303,6 +304,16 @@ export class RalphExecutor {
     prompt += `- If you need clarification, make reasonable assumptions based on the task context\n`;
     prompt += `- Ensure your code follows existing patterns and conventions in the codebase\n`;
     prompt += `- Test your implementation if possible (run relevant tests or checks)\n\n`;
+
+    prompt += `## Task Status Information\n\n`;
+    prompt += `This task has a status of "${task.status}". The possible task statuses are:\n`;
+    prompt += `- **To Do**: Task is ready to be started\n`;
+    prompt += `- **In Progress**: Task is currently being worked on\n`;
+    prompt += `- **Implemented**: Task has been implemented and should not be executed again\n`;
+    prompt += `- **Needs Re-Work**: Task was attempted but needs to be redone\n`;
+    prompt += `- **Verified**: Task has been implemented and verified, should not be executed again\n\n`;
+    prompt += `You are receiving this task because it is ready to be implemented. After you complete\n`;
+    prompt += `the implementation, the task status will be updated to "Implemented".\n\n`;
 
     prompt += `BEGIN IMPLEMENTATION NOW.\n`;
 
