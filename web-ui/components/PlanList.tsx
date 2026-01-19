@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { PlanCard } from './PlanCard';
 import { Button } from './ui/button';
-import { Loader2, AlertCircle, FolderOpen, RefreshCw } from 'lucide-react';
+import { Loader2, AlertCircle, FolderOpen, RefreshCw, Clock, EyeOff } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export interface PlanData {
   id: string;
@@ -24,6 +25,9 @@ export interface PlansApiResponse {
   message?: string;
 }
 
+// Stale data threshold (60 seconds)
+const STALE_TIME_MS = 60000;
+
 /**
  * PlanList component
  *
@@ -32,15 +36,33 @@ export interface PlansApiResponse {
  * - Empty state when no plans found
  * - Error state with retry button
  * - Responsive grid layout (1/2/3 columns)
+ * - Real-time updates via polling
+ * - Manual refresh button with loading state
+ * - Last updated timestamp
+ * - Stale data indicator
  */
 export function PlanList() {
   const [plans, setPlans] = useState<PlanData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [pollInterval] = useState(
+    () => parseInt(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS || '5000', 10)
+  );
 
-  const fetchPlans = async () => {
+  const isStale = lastUpdated
+    ? Date.now() - lastUpdated.getTime() > STALE_TIME_MS
+    : true;
+
+  const fetchPlans = async (manual = false) => {
     try {
-      setLoading(true);
+      if (manual) {
+        setManualRefreshing(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
 
       const response = await fetch('/api/plans');
@@ -56,17 +78,60 @@ export function PlanList() {
       }
 
       setPlans(data.plans || []);
+      setLastUpdated(new Date());
     } catch (err) {
       console.error('Error fetching plans:', err);
       setError(err instanceof Error ? err.message : 'Failed to load plans');
     } finally {
       setLoading(false);
+      setManualRefreshing(false);
     }
+  };
+
+  const handleManualRefresh = () => {
+    fetchPlans(true);
+  };
+
+  const togglePause = () => {
+    setIsPaused(prev => !prev);
   };
 
   useEffect(() => {
     fetchPlans();
-  }, []);
+
+    let intervalId: NodeJS.Timeout | null = null;
+
+    // Only set up polling if not paused
+    if (!isPaused) {
+      intervalId = setInterval(() => {
+        fetchPlans();
+      }, pollInterval);
+    }
+
+    // Handle visibility changes to pause/resume polling
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setIsPaused(true);
+        if (intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+      } else if (isPaused) {
+        // Tab became visible and was paused - resume
+        setIsPaused(false);
+        fetchPlans(); // Fetch immediately on visibility
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [pollInterval, isPaused]);
 
   // Loading state
   if (loading) {
@@ -90,7 +155,7 @@ export function PlanList() {
           </div>
           <h2 className="text-xl font-semibold mb-2">Failed to Load Plans</h2>
           <p className="text-muted-foreground mb-4">{error}</p>
-          <Button onClick={fetchPlans} variant="outline">
+          <Button onClick={handleManualRefresh} variant="outline">
             <RefreshCw className="mr-2 h-4 w-4" />
             Retry
           </Button>
@@ -117,20 +182,84 @@ export function PlanList() {
     );
   }
 
+  // Format timestamp
+  const formatLastUpdated = (date: Date | null): string => {
+    if (!date) return 'Never';
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+
+    if (diffSecs < 60) return `${diffSecs}s ago`;
+    if (diffMins < 60) return `${diffMins}m ago`;
+    return date.toLocaleTimeString();
+  };
+
   // Plans grid
   return (
     <div className="space-y-4 sm:space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Implementation Plans</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Implementation Plans</h1>
+            {isStale && (
+              <div
+                className={cn(
+                  'flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
+                  'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                )}
+                title="Data is stale (older than 60 seconds)"
+              >
+                <EyeOff className="h-3 w-3" />
+                Stale
+              </div>
+            )}
+          </div>
           <p className="text-sm sm:text-base text-muted-foreground">
             Browse and manage your Ralph project implementation plans
           </p>
+          {lastUpdated && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Clock className="h-3 w-3" />
+              <span>Last updated: {formatLastUpdated(lastUpdated)}</span>
+              {isPaused && (
+                <span className="ml-2 text-muted-foreground">(Paused)</span>
+              )}
+            </div>
+          )}
         </div>
-        <Button onClick={fetchPlans} variant="outline" size="sm" className="w-full sm:w-auto">
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Button
+            onClick={togglePause}
+            variant="outline"
+            size="sm"
+            className="flex-1 sm:flex-none"
+          >
+            {isPaused ? (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Resume
+              </>
+            ) : (
+              <>
+                <EyeOff className="mr-2 h-4 w-4" />
+                Pause
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={handleManualRefresh}
+            variant="outline"
+            size="sm"
+            disabled={manualRefreshing}
+            className="flex-1 sm:flex-none"
+          >
+            <RefreshCw
+              className={cn('mr-2 h-4 w-4', manualRefreshing && 'animate-spin')}
+            />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:gap-6 grid-cols-1 xs:grid-cols-2 lg:grid-cols-3">

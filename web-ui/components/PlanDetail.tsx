@@ -15,6 +15,8 @@ import {
   Clock,
   ListChecks,
   GitGraph,
+  RefreshCw,
+  EyeOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { RalphTask } from '@/lib/plan-utils';
@@ -45,6 +47,9 @@ interface PlanDetailApiResponse {
   warnings?: string[];
 }
 
+// Stale data threshold (60 seconds)
+const STALE_TIME_MS = 60000;
+
 /**
  * PlanDetail component
  *
@@ -53,48 +58,122 @@ interface PlanDetailApiResponse {
  * - Progress indicator
  * - Filterable/sortable task list
  * - Breadcrumb navigation
+ * - Real-time updates via polling
+ * - Manual refresh button with loading state
+ * - Last updated timestamp
+ * - Stale data indicator
  */
 export function PlanDetail({ planId }: { planId: string }) {
   const [plan, setPlan] = useState<PlanDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'graph'>('list');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [pollInterval] = useState(
+    () => parseInt(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS || '5000', 10)
+  );
+
+  const isStale = lastUpdated
+    ? Date.now() - lastUpdated.getTime() > STALE_TIME_MS
+    : true;
+
+  const fetchPlan = async (manual = false) => {
+    try {
+      if (manual) {
+        setManualRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
+
+      const response = await fetch(`/api/plans/${planId}`);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data: PlanDetailApiResponse = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to fetch plan');
+      }
+
+      setPlan(data.plan || null);
+      setLastUpdated(new Date());
+    } catch (err) {
+      console.error('Error fetching plan:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load plan');
+    } finally {
+      setLoading(false);
+      setManualRefreshing(false);
+    }
+  };
+
+  const handleManualRefresh = () => {
+    fetchPlan(true);
+  };
+
+  const togglePause = () => {
+    setIsPaused(prev => !prev);
+  };
 
   useEffect(() => {
-    const fetchPlan = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+    fetchPlan();
 
-        const response = await fetch(`/api/plans/${planId}`);
+    let intervalId: NodeJS.Timeout | null = null;
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+    // Only set up polling if not paused
+    if (!isPaused) {
+      intervalId = setInterval(() => {
+        fetchPlan();
+      }, pollInterval);
+    }
+
+    // Handle visibility changes to pause/resume polling
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setIsPaused(true);
+        if (intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
         }
-
-        const data: PlanDetailApiResponse = await response.json();
-
-        if (!data.success) {
-          throw new Error(data.message || 'Failed to fetch plan');
-        }
-
-        setPlan(data.plan || null);
-      } catch (err) {
-        console.error('Error fetching plan:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load plan');
-      } finally {
-        setLoading(false);
+      } else if (isPaused) {
+        // Tab became visible and was paused - resume
+        setIsPaused(false);
+        fetchPlan(); // Fetch immediately on visibility
       }
     };
 
-    fetchPlan();
-  }, [planId]);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [planId, pollInterval, isPaused]);
 
   // Calculate progress (since tasks don't have status, we'll assume 0% for now)
   const progress = plan ? 0 : 0;
   const completedTasks = 0;
   const inProgressTasks = 0;
   const failedTasks = 0;
+
+  // Format timestamp
+  const formatLastUpdated = (date: Date | null): string => {
+    if (!date) return 'Never';
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+
+    if (diffSecs < 60) return `${diffSecs}s ago`;
+    if (diffMins < 60) return `${diffMins}m ago`;
+    return date.toLocaleTimeString();
+  };
 
   // Loading state
   if (loading) {
@@ -146,8 +225,67 @@ export function PlanDetail({ planId }: { planId: string }) {
 
       {/* Plan Header */}
       <div className="space-y-2">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{plan.name}</h1>
-        <p className="text-sm sm:text-base text-muted-foreground">{plan.description}</p>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4">
+          <div className="space-y-1 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{plan.name}</h1>
+              {isStale && (
+                <div
+                  className={cn(
+                    'flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
+                    'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                  )}
+                  title="Data is stale (older than 60 seconds)"
+                >
+                  <EyeOff className="h-3 w-3" />
+                  Stale
+                </div>
+              )}
+            </div>
+            <p className="text-sm sm:text-base text-muted-foreground">{plan.description}</p>
+            {lastUpdated && (
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Clock className="h-3 w-3" />
+                <span>Last updated: {formatLastUpdated(lastUpdated)}</span>
+                {isPaused && (
+                  <span className="ml-2 text-muted-foreground">(Paused)</span>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Button
+              onClick={togglePause}
+              variant="outline"
+              size="sm"
+              className="flex-1 sm:flex-none"
+            >
+              {isPaused ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Resume
+                </>
+              ) : (
+                <>
+                  <EyeOff className="mr-2 h-4 w-4" />
+                  Pause
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={handleManualRefresh}
+              variant="outline"
+              size="sm"
+              disabled={manualRefreshing}
+              className="flex-1 sm:flex-none"
+            >
+              <RefreshCw
+                className={cn('mr-2 h-4 w-4', manualRefreshing && 'animate-spin')}
+              />
+              Refresh
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* Progress Card */}
