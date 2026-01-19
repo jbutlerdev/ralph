@@ -18,6 +18,8 @@ import {
   FileText,
   GitBranch,
   ArrowRight,
+  Check,
+  Network,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { RalphTask } from '@/lib/plan-utils';
@@ -28,6 +30,8 @@ export interface TaskDetailProps {
   onOpenChange: (open: boolean) => void;
   planTasks?: RalphTask[]; // Optional: all tasks in the plan for dependency graph
   onNavigateToTask?: (taskId: string) => void; // Callback for task navigation
+  taskStatus?: 'pending' | 'in_progress' | 'completed' | 'failed'; // Optional task status
+  completedCriteria?: string[]; // Optional list of completed acceptance criteria IDs
 }
 
 /**
@@ -49,6 +53,8 @@ export function TaskDetail({
   onOpenChange,
   planTasks = [],
   onNavigateToTask,
+  taskStatus = 'pending',
+  completedCriteria = [],
 }: TaskDetailProps) {
   const getPriorityColor = (priority: RalphTask['priority']) => {
     switch (priority) {
@@ -85,6 +91,45 @@ export function TaskDetail({
         return { label: 'Complex', color: 'text-orange-600 dark:text-orange-400' };
       case 5:
         return { label: 'Very Complex', color: 'text-red-600 dark:text-red-400' };
+    }
+  };
+
+  const getStatusColor = (status: 'pending' | 'in_progress' | 'completed' | 'failed') => {
+    switch (status) {
+      case 'completed':
+        return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
+      case 'in_progress':
+        return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
+      case 'failed':
+        return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+      default:
+        return 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400';
+    }
+  };
+
+  const getStatusLabel = (status: 'pending' | 'in_progress' | 'completed' | 'failed') => {
+    switch (status) {
+      case 'completed':
+        return 'Completed';
+      case 'in_progress':
+        return 'In Progress';
+      case 'failed':
+        return 'Failed';
+      default:
+        return 'Pending';
+    }
+  };
+
+  const getStatusIcon = (status: 'pending' | 'in_progress' | 'completed' | 'failed') => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle2 className="h-4 w-4" aria-hidden="true" />;
+      case 'in_progress':
+        return <Circle className="h-4 w-4 fill-blue-500/20 text-blue-500" aria-hidden="true" />;
+      case 'failed':
+        return <AlertTriangle className="h-4 w-4" aria-hidden="true" />;
+      default:
+        return <Circle className="h-4 w-4 text-muted-foreground" aria-hidden="true" />;
     }
   };
 
@@ -135,6 +180,18 @@ export function TaskDetail({
                     {complexityInfo.label}
                   </span>
                 )}
+
+                {/* Status Badge */}
+                <span
+                  className={cn(
+                    'text-xs font-medium px-2 py-0.5 rounded-full flex items-center gap-1',
+                    getStatusColor(taskStatus)
+                  )}
+                  aria-label={`Status: ${getStatusLabel(taskStatus)}`}
+                >
+                  {getStatusIcon(taskStatus)}
+                  {getStatusLabel(taskStatus)}
+                </span>
               </div>
 
               <DialogTitle className="text-2xl">{task.title}</DialogTitle>
@@ -175,7 +232,7 @@ export function TaskDetail({
                 <ListChecks className="h-4 w-4" />
                 Acceptance Criteria
                 <span className="ml-1 text-xs font-normal text-muted-foreground">
-                  ({task.acceptanceCriteria.length} items)
+                  ({task.acceptanceCriteria.length} items, {completedCriteria.length} completed)
                 </span>
               </h3>
               <ul
@@ -183,20 +240,45 @@ export function TaskDetail({
                 role="list"
                 aria-label="Acceptance criteria list"
               >
-                {task.acceptanceCriteria.map((criterion, idx) => (
-                  <li
-                    key={idx}
-                    className="flex items-start gap-3 text-sm group"
-                    role="listitem"
-                  >
-                    <div className="mt-0.5">
-                      <Circle className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                    </div>
-                    <span className="flex-1 text-foreground leading-relaxed">
-                      {criterion}
-                    </span>
-                  </li>
-                ))}
+                {task.acceptanceCriteria.map((criterion, idx) => {
+                  const isCompleted = completedCriteria.includes(criterion);
+                  return (
+                    <li
+                      key={idx}
+                      className={cn(
+                        'flex items-start gap-3 text-sm group transition-colors',
+                        isCompleted ? 'opacity-75' : ''
+                      )}
+                      role="listitem"
+                    >
+                      <div className="mt-0.5 flex-shrink-0">
+                        {isCompleted ? (
+                          <div className="flex items-center justify-center w-4 h-4 rounded bg-green-500 text-white">
+                            <Check className="h-3 w-3" aria-hidden="true" />
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center w-4 h-4 rounded border-2 border-muted-foreground">
+                            <div className="w-2 h-2" aria-hidden="true" />
+                          </div>
+                        )}
+                      </div>
+                      <span className={cn(
+                        'flex-1 leading-relaxed',
+                        isCompleted ? 'line-through text-muted-foreground' : 'text-foreground'
+                      )}>
+                        {criterion}
+                      </span>
+                      <span className={cn(
+                        'text-xs font-medium px-2 py-0.5 rounded',
+                        isCompleted
+                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                          : 'bg-gray-100 text-gray-600 dark:bg-gray-900/30 dark:text-gray-400'
+                      )}>
+                        {isCompleted ? 'Done' : 'Pending'}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           )}
@@ -263,6 +345,103 @@ export function TaskDetail({
                     </div>
                   </button>
                 ))}
+              </div>
+            </section>
+          )}
+
+          {/* Visual Dependency Graph */}
+          {(task.dependencies.length > 0 || dependentTasks.length > 0) && (
+            <section>
+              <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
+                <Network className="h-4 w-4" />
+                Dependency Graph
+                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  Visual representation of task relationships
+                </span>
+              </h3>
+              <div className="bg-muted/30 rounded-lg p-4 border">
+                <div className="flex items-center justify-center gap-4 flex-wrap">
+                  {/* Parent tasks (dependencies) */}
+                  {parentTasks.length > 0 && (
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">Dependencies</span>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {parentTasks.map(parentTask => (
+                          <button
+                            key={parentTask.id}
+                            onClick={() => onNavigateToTask?.(parentTask.id)}
+                            className="px-3 py-2 rounded-lg border-2 border-orange-500 bg-orange-50 dark:bg-orange-950/20 hover:bg-orange-100 dark:hover:bg-orange-950/40 transition-colors text-xs font-medium text-orange-700 dark:text-orange-300 max-w-[120px]"
+                            aria-label={`View dependency ${parentTask.id}: ${parentTask.title}`}
+                            title={parentTask.title}
+                          >
+                            <div className="truncate">{parentTask.id}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Arrow indicators */}
+                  {parentTasks.length > 0 && dependentTasks.length > 0 && (
+                    <div className="flex flex-col items-center gap-1">
+                      <ArrowRight className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                  )}
+
+                  {/* Current task */}
+                  <div className="flex flex-col items-center gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">This Task</span>
+                    <div className="px-4 py-3 rounded-lg border-2 border-primary bg-primary/10 text-xs font-semibold text-primary max-w-[140px] text-center">
+                      <div className="truncate">{task.id}</div>
+                      <div className="text-[10px] mt-1 truncate">{task.title}</div>
+                    </div>
+                  </div>
+
+                  {/* Arrow indicators */}
+                  {parentTasks.length > 0 && dependentTasks.length > 0 && (
+                    <div className="flex flex-col items-center gap-1">
+                      <ArrowRight className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                  )}
+
+                  {/* Child tasks (dependents) */}
+                  {dependentTasks.length > 0 && (
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">Dependent Tasks</span>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {dependentTasks.map(childTask => (
+                          <button
+                            key={childTask.id}
+                            onClick={() => onNavigateToTask?.(childTask.id)}
+                            className="px-3 py-2 rounded-lg border-2 border-blue-500 bg-blue-50 dark:bg-blue-950/20 hover:bg-blue-100 dark:hover:bg-blue-950/40 transition-colors text-xs font-medium text-blue-700 dark:text-blue-300 max-w-[120px]"
+                            aria-label={`View dependent task ${childTask.id}: ${childTask.title}`}
+                            title={childTask.title}
+                          >
+                            <div className="truncate">{childTask.id}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Legend */}
+                <div className="mt-4 pt-4 border-t border-muted-foreground/20">
+                  <div className="flex items-center justify-center gap-6 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border-2 border-orange-500 bg-orange-50 dark:bg-orange-950/20" />
+                      <span>Dependencies (must complete first)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border-2 border-primary bg-primary/10" />
+                      <span>Current task</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 rounded border-2 border-blue-500 bg-blue-50 dark:bg-blue-950/20" />
+                      <span>Tasks that depend on this</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </section>
           )}

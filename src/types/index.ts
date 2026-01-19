@@ -132,6 +132,11 @@ export interface RalphExecutorOptions {
   testCommand?: string;
 
   /**
+   * Whether to fail tasks when acceptance criteria are not verified
+   */
+  requireAcceptanceCriteria?: boolean;
+
+  /**
    * Directory for storing execution state
    */
   stateDir?: string;
