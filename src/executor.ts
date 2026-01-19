@@ -260,6 +260,11 @@ export class RalphExecutor {
   private buildTaskPrompt(task: RalphTask): string {
     let prompt = `# Task Execution - IMPLEMENT THIS TASK\n\n`;
 
+    // Project context from the plan
+    prompt += `## Project Context\n\n`;
+    prompt += `**Project:** ${this.plan.projectName}\n\n`;
+    prompt += `**Overview:**\n${this.plan.overview}\n\n`;
+
     prompt += `You are an autonomous AI assistant. You MUST IMPLEMENT the following task by writing, modifying, or deleting code files.\n\n`;
     prompt += `Do NOT just describe what should be done - you MUST actually make the code changes.\n\n`;
 
