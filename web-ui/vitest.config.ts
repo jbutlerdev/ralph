@@ -4,13 +4,14 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/**/*.{test,spec}.{js,ts}'],
+    include: ['lib/**/*.{test,spec}.{js,ts}', 'app/**/*.{test,spec}.{js,ts}', 'components/**/*.{test,spec}.{js,ts}'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       exclude: [
         'node_modules/',
-        'src/__tests__/',
+        'lib/**/__tests__/',
+        'components/**/__tests__/',
         '**/*.d.ts',
         '**/*.config.*',
         '**/mockData',

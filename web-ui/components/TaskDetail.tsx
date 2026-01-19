@@ -1,0 +1,329 @@
+'use client';
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog';
+import {
+  CheckCircle2,
+  Circle,
+  AlertTriangle,
+  X,
+  Tag,
+  Link as LinkIcon,
+  ListChecks,
+  FileText,
+  GitBranch,
+  ArrowRight,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import type { RalphTask } from '@/lib/plan-utils';
+
+export interface TaskDetailProps {
+  task: RalphTask;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  planTasks?: RalphTask[]; // Optional: all tasks in the plan for dependency graph
+  onNavigateToTask?: (taskId: string) => void; // Callback for task navigation
+}
+
+/**
+ * TaskDetail component
+ *
+ * Displays a detailed view of a single task with:
+ * - Full task information (title, ID, status, priority, complexity, tags)
+ * - Complete description
+ * - Acceptance criteria as checkboxes
+ * - Dependencies section with links to parent tasks
+ * - Dependent tasks section with links to child tasks
+ * - Spec reference link if present
+ * - Visual dependency information
+ * - Full accessibility support
+ */
+export function TaskDetail({
+  task,
+  open,
+  onOpenChange,
+  planTasks = [],
+  onNavigateToTask,
+}: TaskDetailProps) {
+  const getPriorityColor = (priority: RalphTask['priority']) => {
+    switch (priority) {
+      case 'high':
+        return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+      case 'medium':
+        return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
+      case 'low':
+        return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
+    }
+  };
+
+  const getPriorityLabel = (priority: RalphTask['priority']) => {
+    switch (priority) {
+      case 'high':
+        return 'High Priority';
+      case 'medium':
+        return 'Medium Priority';
+      case 'low':
+        return 'Low Priority';
+    }
+  };
+
+  const getComplexityLabel = (complexity?: number) => {
+    if (!complexity) return undefined;
+    switch (complexity) {
+      case 1:
+        return { label: 'Trivial', color: 'text-green-600 dark:text-green-400' };
+      case 2:
+        return { label: 'Simple', color: 'text-green-600 dark:text-green-400' };
+      case 3:
+        return { label: 'Moderate', color: 'text-yellow-600 dark:text-yellow-400' };
+      case 4:
+        return { label: 'Complex', color: 'text-orange-600 dark:text-orange-400' };
+      case 5:
+        return { label: 'Very Complex', color: 'text-red-600 dark:text-red-400' };
+    }
+  };
+
+  // Find dependent tasks (tasks that depend on this task)
+  const dependentTasks = planTasks.filter(t =>
+    t.dependencies.includes(task.id)
+  );
+
+  // Find parent tasks (tasks this task depends on)
+  const parentTasks = planTasks.filter(t =>
+    task.dependencies.includes(t.id)
+  );
+
+  const complexityInfo = getComplexityLabel(task.estimatedComplexity);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" aria-describedby="task-description">
+        <DialogHeader>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                {/* Task ID */}
+                <span className="text-sm font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                  {task.id}
+                </span>
+
+                {/* Priority Badge */}
+                <span
+                  className={cn(
+                    'text-xs font-medium px-2 py-0.5 rounded-full',
+                    getPriorityColor(task.priority)
+                  )}
+                  aria-label={`Priority: ${task.priority}`}
+                >
+                  {getPriorityLabel(task.priority)}
+                </span>
+
+                {/* Complexity Badge */}
+                {complexityInfo && (
+                  <span
+                    className={cn(
+                      'text-xs font-medium px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground',
+                      complexityInfo.color
+                    )}
+                    aria-label={`Complexity: ${complexityInfo.label}`}
+                  >
+                    {complexityInfo.label}
+                  </span>
+                )}
+              </div>
+
+              <DialogTitle className="text-2xl">{task.title}</DialogTitle>
+            </div>
+
+            {/* Close button */}
+            <button
+              onClick={() => onOpenChange(false)}
+              className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none"
+              aria-label="Close dialog"
+            >
+              <X className="h-5 w-5" />
+              <span className="sr-only">Close</span>
+            </button>
+          </div>
+
+          <DialogDescription id="task-description">
+            Full task details and requirements
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-6 mt-4">
+          {/* Description */}
+          <section>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Description
+            </h3>
+            <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+              {task.description || 'No description provided.'}
+            </p>
+          </section>
+
+          {/* Acceptance Criteria */}
+          {task.acceptanceCriteria.length > 0 && (
+            <section>
+              <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
+                <ListChecks className="h-4 w-4" />
+                Acceptance Criteria
+                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  ({task.acceptanceCriteria.length} items)
+                </span>
+              </h3>
+              <ul
+                className="space-y-2"
+                role="list"
+                aria-label="Acceptance criteria list"
+              >
+                {task.acceptanceCriteria.map((criterion, idx) => (
+                  <li
+                    key={idx}
+                    className="flex items-start gap-3 text-sm group"
+                    role="listitem"
+                  >
+                    <div className="mt-0.5">
+                      <Circle className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                    </div>
+                    <span className="flex-1 text-foreground leading-relaxed">
+                      {criterion}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* Dependencies Section */}
+          {task.dependencies.length > 0 && (
+            <section>
+              <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
+                <GitBranch className="h-4 w-4" />
+                Dependencies
+                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  ({task.dependencies.length} required task{task.dependencies.length > 1 ? 's' : ''})
+                </span>
+              </h3>
+              <div className="space-y-2">
+                {parentTasks.map(parentTask => (
+                  <button
+                    key={parentTask.id}
+                    onClick={() => onNavigateToTask?.(parentTask.id)}
+                    className="w-full text-left p-3 rounded-lg border bg-card hover:bg-accent hover:border-accent transition-all group"
+                    aria-label={`View task ${parentTask.id}: ${parentTask.title}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                        {parentTask.id}
+                      </span>
+                      <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors flex-1">
+                        {parentTask.title}
+                      </span>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" aria-hidden="true" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Dependent Tasks Section */}
+          {dependentTasks.length > 0 && (
+            <section>
+              <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
+                <LinkIcon className="h-4 w-4" />
+                Dependent Tasks
+                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  ({dependentTasks.length} task{dependentTasks.length > 1 ? 's' : ''} depend on this)
+                </span>
+              </h3>
+              <div className="space-y-2">
+                {dependentTasks.map(childTask => (
+                  <button
+                    key={childTask.id}
+                    onClick={() => onNavigateToTask?.(childTask.id)}
+                    className="w-full text-left p-3 rounded-lg border bg-card hover:bg-accent hover:border-accent transition-all group"
+                    aria-label={`View task ${childTask.id}: ${childTask.title}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors rotate-180" aria-hidden="true" />
+                      <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                        {childTask.id}
+                      </span>
+                      <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors flex-1">
+                        {childTask.title}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Tags */}
+          {task.tags && task.tags.length > 0 && (
+            <section>
+              <h3 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-2">
+                <Tag className="h-4 w-4" />
+                Tags
+              </h3>
+              <div className="flex flex-wrap gap-2" role="list" aria-label="Task tags">
+                {task.tags.map((tag, idx) => (
+                  <span
+                    key={idx}
+                    className="text-xs px-2.5 py-1 rounded-full bg-secondary text-secondary-foreground font-medium"
+                    role="listitem"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Spec Reference */}
+          {task.specReference && (
+            <section>
+              <h3 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Specification Reference
+              </h3>
+              <a
+                href={task.specReference}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+              >
+                <LinkIcon className="h-4 w-4" aria-hidden="true" />
+                <span>View specification document</span>
+              </a>
+            </section>
+          )}
+
+          {/* Empty state for dependencies */}
+          {task.dependencies.length === 0 && dependentTasks.length === 0 && (
+            <section className="text-center py-6 text-sm text-muted-foreground border border-dashed rounded-lg">
+              <GitBranch className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p>This task has no dependencies</p>
+              <p className="text-xs mt-1">It can be started at any time</p>
+            </section>
+          )}
+        </div>
+
+        {/* Footer with keyboard hint */}
+        <div className="mt-6 pt-4 border-t">
+          <p className="text-xs text-muted-foreground text-center">
+            Press <kbd className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono">Esc</kbd> to close
+          </p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

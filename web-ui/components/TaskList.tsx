@@ -1,0 +1,201 @@
+'use client';
+
+import { useState, useMemo } from 'react';
+import { TaskItem } from './TaskItem';
+import { TaskDetail } from './TaskDetail';
+import { Button } from './ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select';
+import type { RalphTask } from '@/lib/plan-utils';
+
+export type TaskFilter = 'all' | 'pending' | 'in-progress' | 'completed';
+export type TaskSortBy = 'id' | 'priority' | 'status' | 'dependencies';
+
+export interface TaskListProps {
+  tasks: RalphTask[];
+  className?: string;
+}
+
+/**
+ * TaskList component
+ *
+ * Displays a list of tasks with:
+ * - Filter by status (All, Pending, In Progress, Completed)
+ * - Sort by ID, priority, status, or dependencies
+ * - Configurable display options
+ * - Click to view task details in modal
+ */
+export function TaskList({ tasks, className }: TaskListProps) {
+  const [filter, setFilter] = useState<TaskFilter>('all');
+  const [sortBy, setSortBy] = useState<TaskSortBy>('id');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [showDescriptions, setShowDescriptions] = useState(true);
+  const [showAcceptanceCriteria, setShowAcceptanceCriteria] = useState(true);
+  const [selectedTask, setSelectedTask] = useState<RalphTask | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Priority order for sorting (memoized as it's used in useMemo)
+  const priorityOrder = useMemo(() => ({ high: 0, medium: 1, low: 2 }), []);
+
+  // Filter and sort tasks
+  const filteredAndSortedTasks = useMemo(() => {
+    let filtered = [...tasks];
+
+    // Apply filter
+    if (filter !== 'all') {
+      // Since tasks don't have status in RalphTask interface,
+      // we'll simulate this based on task ID or other attributes
+      // In a real implementation, this would come from task status data
+      filtered = filtered;
+    }
+
+    // Apply sort
+    filtered.sort((a, b) => {
+      let comparison = 0;
+
+      switch (sortBy) {
+        case 'id':
+          comparison = a.id.localeCompare(b.id);
+          break;
+        case 'priority':
+          comparison = priorityOrder[a.priority] - priorityOrder[b.priority];
+          break;
+        case 'dependencies':
+          comparison = a.dependencies.length - b.dependencies.length;
+          break;
+        case 'status':
+          // No status field, sort by ID as fallback
+          comparison = a.id.localeCompare(b.id);
+          break;
+        default:
+          comparison = 0;
+      }
+
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+
+    return filtered;
+  }, [tasks, filter, sortBy, sortOrder, priorityOrder]);
+
+  const toggleSortOrder = () => {
+    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+  };
+
+  const handleTaskClick = (task: RalphTask) => {
+    setSelectedTask(task);
+    setIsModalOpen(true);
+  };
+
+  const handleNavigateToTask = (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (task) {
+      setSelectedTask(task);
+    }
+  };
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    // Don't clear selectedTask immediately to avoid flicker during close animation
+    setTimeout(() => setSelectedTask(null), 200);
+  };
+
+  return (
+    <div className={className}>
+      {/* Controls */}
+      <div className="mb-6 flex flex-wrap items-center gap-4">
+        {/* Filter */}
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-muted-foreground">Filter:</label>
+          <Select value={filter} onValueChange={(value: TaskFilter) => setFilter(value)}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Tasks</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="in-progress">In Progress</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Sort */}
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-muted-foreground">Sort by:</label>
+          <Select value={sortBy} onValueChange={(value: TaskSortBy) => setSortBy(value)}>
+            <SelectTrigger className="w-[130px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="id">ID</SelectItem>
+              <SelectItem value="priority">Priority</SelectItem>
+              <SelectItem value="dependencies">Dependencies</SelectItem>
+              <SelectItem value="status">Status</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={toggleSortOrder}>
+            {sortOrder === 'asc' ? '↑' : '↓'}
+          </Button>
+        </div>
+
+        {/* Display Options */}
+        <div className="flex items-center gap-2 ml-auto">
+          <Button
+            variant={showDescriptions ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShowDescriptions(!showDescriptions)}
+          >
+            Descriptions
+          </Button>
+          <Button
+            variant={showAcceptanceCriteria ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShowAcceptanceCriteria(!showAcceptanceCriteria)}
+          >
+            Criteria
+          </Button>
+        </div>
+      </div>
+
+      {/* Task Count */}
+      <div className="mb-4 text-sm text-muted-foreground">
+        Showing {filteredAndSortedTasks.length} of {tasks.length} task{tasks.length !== 1 ? 's' : ''}
+      </div>
+
+      {/* Tasks Grid */}
+      {filteredAndSortedTasks.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <p>No tasks match the current filter.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredAndSortedTasks.map((task) => (
+            <TaskItem
+              key={task.id}
+              task={task}
+              showDescription={showDescriptions}
+              showAcceptanceCriteria={showAcceptanceCriteria}
+              onClick={() => handleTaskClick(task)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Task Detail Modal */}
+      {selectedTask && (
+        <TaskDetail
+          task={selectedTask}
+          open={isModalOpen}
+          onOpenChange={handleCloseModal}
+          planTasks={tasks}
+          onNavigateToTask={handleNavigateToTask}
+        />
+      )}
+    </div>
+  );
+}

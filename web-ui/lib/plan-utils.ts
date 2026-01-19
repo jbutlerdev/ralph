@@ -1,17 +1,40 @@
 /**
- * Ralph Plan Parser
+ * Ralph Plan Utilities
  *
- * Utilities for reading and parsing Ralph implementation plans from Markdown.
+ * A subset of plan generator utilities for use in the web UI.
+ * These are copied from the main Ralph package to avoid module resolution issues.
  */
 
-import type { RalphPlan, RalphTask, RalphProgress } from './types';
+/**
+ * Task interface
+ */
+export interface RalphTask {
+  id: string;
+  title: string;
+  description: string;
+  priority: 'high' | 'medium' | 'low';
+  dependencies: string[];
+  acceptanceCriteria: string[];
+  specReference?: string;
+  estimatedComplexity?: 1 | 2 | 3 | 4 | 5;
+  tags?: string[];
+}
 
 /**
- * Converts a Markdown implementation plan to a RalphPlan object.
- * Parses the structured format defined in CLAUDE.md.
- *
- * @param markdown - The Markdown content to parse
- * @returns A parsed RalphPlan object
+ * Plan interface
+ */
+export interface RalphPlan {
+  projectName: string;
+  description: string;
+  overview: string;
+  tasks: RalphTask[];
+  generatedAt: string;
+  totalTasks: number;
+  estimatedDuration?: string;
+}
+
+/**
+ * Converts a Markdown implementation plan to a RalphPlan object
  */
 export function planFromMarkdown(markdown: string): RalphPlan {
   const tasks: RalphTask[] = [];
@@ -44,6 +67,7 @@ export function planFromMarkdown(markdown: string): RalphPlan {
         title: taskHeaderMatch[2],
         dependencies: [],
         acceptanceCriteria: [],
+        priority: 'medium',
       };
       continue;
     }
@@ -69,36 +93,23 @@ export function planFromMarkdown(markdown: string): RalphPlan {
     if (depsMatch) {
       const deps = depsMatch[1]
         .split(',')
-        .map((d) => d.trim())
-        .filter((d) => d);
+        .map(d => d.trim())
+        .filter(d => d);
       currentTask.dependencies = deps;
       continue;
     }
 
-    // Parse complexity
-    const complexityMatch = line.match(/\*\*Complexity:\*\*\s*(\d)\/5/i);
-    if (complexityMatch && currentTask) {
-      currentTask.estimatedComplexity = Number.parseInt(complexityMatch[1], 10) as 1 | 2 | 3 | 4 | 5;
-      continue;
-    }
-
-    // Parse tags
-    const tagsMatch = line.match(/\*\*Tags:\*\*\s*(.+)/i);
-    if (tagsMatch && currentTask) {
-      currentTask.tags = tagsMatch[1].split(',').map((t) => t.trim()).filter((t) => t);
-      continue;
-    }
-
     // Parse description
-    const descMatch = line.match(/\*\*Description:\*\*\s*(.+)/i);
+    const descMatch = line.match(/\*\*Description:\*\*/i);
     if (descMatch) {
-      currentTask.description = descMatch[1];
-      // Continue reading multi-line description
+      // Read the next line(s) as the description content
       let j = i + 1;
+      const descLines: string[] = [];
       while (j < lines.length && lines[j].trim() && !lines[j].trim().startsWith('**')) {
-        currentTask.description += '\n' + lines[j].trim();
+        descLines.push(lines[j].trim());
         j++;
       }
+      currentTask.description = descLines.join('\n');
       i = j - 1;
       continue;
     }
@@ -106,7 +117,7 @@ export function planFromMarkdown(markdown: string): RalphPlan {
     // Parse acceptance criteria checkboxes
     const criteriaMatch = line.match(/^-\s+\[\s*\]\s*(.+)/);
     if (criteriaMatch) {
-      currentTask.acceptanceCriteria.push(criteriaMatch[1]);
+      currentTask.acceptanceCriteria?.push(criteriaMatch[1]);
       continue;
     }
 
@@ -141,123 +152,7 @@ export function planFromMarkdown(markdown: string): RalphPlan {
 }
 
 /**
- * Sorts tasks by dependency order using topological sort.
- * Returns tasks in the order they should be executed.
- *
- * @param tasks - Array of tasks to sort
- * @returns Tasks sorted by dependency order
- * @throws Error if circular dependencies are detected
- */
-export function sortTasksByDependencies(tasks: RalphTask[]): RalphTask[] {
-  const taskMap = new Map(tasks.map((t) => [t.id, t]));
-  const sorted: RalphTask[] = [];
-  const visited = new Set<string>();
-  const temp = new Set<string>();
-
-  function visit(taskId: string): void {
-    if (temp.has(taskId)) {
-      throw new Error(`Circular dependency detected involving ${taskId}`);
-    }
-    if (visited.has(taskId)) return;
-
-    temp.add(taskId);
-
-    const task = taskMap.get(taskId);
-    if (task) {
-      for (const depId of task.dependencies) {
-        visit(depId);
-      }
-    }
-
-    temp.delete(taskId);
-    visited.add(taskId);
-
-    if (task) {
-      sorted.push(task);
-    }
-  }
-
-  for (const task of tasks) {
-    visit(task.id);
-  }
-
-  return sorted;
-}
-
-/**
- * Gets the next pending task that has all dependencies met.
- *
- * @param plan - The Ralph plan to search
- * @param completedTaskIds - Set of completed task IDs
- * @returns The next task, or null if no task is ready
- */
-export function getNextTask(plan: RalphPlan, completedTaskIds: Set<string>): RalphTask | null {
-  for (const task of plan.tasks) {
-    const isCompleted = completedTaskIds.has(task.id);
-    const dependenciesMet = task.dependencies.every((dep) => completedTaskIds.has(dep));
-
-    if (!isCompleted && dependenciesMet) {
-      return task;
-    }
-  }
-  return null;
-}
-
-/**
- * Calculates completion progress for a plan.
- *
- * @param plan - The Ralph plan to calculate progress for
- * @param completedTaskIds - Set of completed task IDs
- * @returns Progress information including completed count, total, and percentage
- */
-export function calculateProgress(plan: RalphPlan, completedTaskIds: Set<string>): RalphProgress {
-  const completed = plan.tasks.filter((t) => completedTaskIds.has(t.id)).length;
-  const total = plan.tasks.length;
-  return {
-    completed,
-    total,
-    percentage: total > 0 ? Math.round((completed / total) * 100) : 0,
-  };
-}
-
-/**
- * Filters tasks by priority level.
- *
- * @param plan - The Ralph plan to filter
- * @param priority - The priority level to filter by
- * @returns Tasks matching the specified priority
- */
-export function filterByPriority(plan: RalphPlan, priority: RalphTask['priority']): RalphTask[] {
-  return plan.tasks.filter((t) => t.priority === priority);
-}
-
-/**
- * Filters tasks by tag.
- *
- * @param plan - The Ralph plan to filter
- * @param tag - The tag to filter by
- * @returns Tasks matching the specified tag
- */
-export function filterByTag(plan: RalphPlan, tag: string): RalphTask[] {
-  return plan.tasks.filter((t) => t.tags?.includes(tag));
-}
-
-/**
- * Gets a task by its ID.
- *
- * @param plan - The Ralph plan to search
- * @param taskId - The task ID to find
- * @returns The task if found, undefined otherwise
- */
-export function getTaskById(plan: RalphPlan, taskId: string): RalphTask | undefined {
-  return plan.tasks.find((t) => t.id === taskId);
-}
-
-/**
- * Validates a Ralph plan for consistency and completeness.
- *
- * @param plan - The Ralph plan to validate
- * @returns Validation result with errors and warnings
+ * Validates a Ralph plan for consistency and completeness
  */
 export function validateRalphPlan(plan: RalphPlan): {
   valid: boolean;
@@ -322,13 +217,10 @@ export function validateRalphPlan(plan: RalphPlan): {
 }
 
 /**
- * Detects circular dependencies in the task graph.
- *
- * @param tasks - Array of tasks to check
- * @returns Array of circular dependency paths found
+ * Detects circular dependencies in the task graph
  */
 function detectCircularDependencies(tasks: RalphTask[]): string[] {
-  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  const taskMap = new Map(tasks.map(t => [t.id, t]));
   const visited = new Set<string>();
   const recursionStack = new Set<string>();
   const cycles: string[] = [];
@@ -363,4 +255,43 @@ function detectCircularDependencies(tasks: RalphTask[]): string[] {
   }
 
   return cycles;
+}
+
+/**
+ * Load a plan from a file path
+ */
+export async function loadPlan(planPath: string): Promise<RalphPlan> {
+  const fs = await import('fs/promises');
+  const content = await fs.readFile(planPath, 'utf-8');
+  return planFromMarkdown(content);
+}
+
+/**
+ * List all available plans in the project
+ */
+export async function listAllPlans(projectRoot: string = process.cwd()): Promise<string[]> {
+  const fs = await import('fs/promises');
+  const path = await import('path');
+  const plansDir = path.join(projectRoot, 'plans');
+
+  const planNames: string[] = [];
+
+  try {
+    const entries = await fs.readdir(plansDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const planPath = path.join(plansDir, entry.name, 'IMPLEMENTATION_PLAN.md');
+        try {
+          await fs.access(planPath);
+          planNames.push(entry.name);
+        } catch {
+          // No IMPLEMENTATION_PLAN.md in this directory
+        }
+      }
+    }
+  } catch {
+    // plans directory doesn't exist
+  }
+
+  return planNames;
 }

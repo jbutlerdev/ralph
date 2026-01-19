@@ -1,10 +1,9 @@
+import { PlanList } from '@/components/PlanList';
+
 export default function Home() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-24">
-      <h1 className="text-4xl font-bold">Ralph TUI Orchestrator</h1>
-      <p className="mt-4 text-lg text-muted-foreground">
-        Web UI for Ralph Wiggum technique
-      </p>
+    <main className="container mx-auto px-4 py-6 sm:py-8 animate-fade-in">
+      <PlanList />
     </main>
   );
 }

@@ -257,19 +257,26 @@ export class RalphExecutor {
    * Build the prompt for a task execution
    */
   private buildTaskPrompt(task: RalphTask): string {
-    let prompt = `# Task Execution\n\n`;
+    let prompt = `# Task Execution - IMPLEMENT THIS TASK\n\n`;
+
+    prompt += `You are an autonomous AI assistant. You MUST IMPLEMENT the following task by writing, modifying, or deleting code files.\n\n`;
+    prompt += `Do NOT just describe what should be done - you MUST actually make the code changes.\n\n`;
+
     prompt += `**Task ID:** ${task.id}\n`;
     prompt += `**Title:** ${task.title}\n`;
     prompt += `**Priority:** ${task.priority}\n\n`;
 
     if (task.dependencies.length > 0) {
-      prompt += `**Dependencies:** ${task.dependencies.join(', ')}\n\n`;
+      prompt += `**Dependencies:** ${task.dependencies.join(', ')}\n`;
+      prompt += `(These tasks have been completed and their changes are already in the codebase)\n\n`;
     }
 
-    prompt += `## Description\n\n${task.description}\n\n`;
+    prompt += `## Task Description\n\n`;
+    prompt += `${task.description}\n\n`;
 
     if (task.acceptanceCriteria.length > 0) {
-      prompt += `## Acceptance Criteria\n\n`;
+      prompt += `## Acceptance Criteria (MUST BE MET)\n\n`;
+      prompt += `You must ensure ALL of the following criteria are satisfied by your implementation:\n\n`;
       for (const criterion of task.acceptanceCriteria) {
         prompt += `- [ ] ${criterion}\n`;
       }
@@ -277,65 +284,87 @@ export class RalphExecutor {
     }
 
     if (task.specReference) {
-      prompt += `## Specification\n\nRefer to: ${task.specReference}\n\n`;
+      prompt += `## Specification Reference\n\n`;
+      prompt += `Refer to: ${task.specReference}\n\n`;
     }
 
-    prompt += `## Instructions\n\n`;
-    prompt += `1. Read the current state of the codebase\n`;
-    prompt += `2. Implement the task according to the description\n`;
-    prompt += `3. Verify all acceptance criteria are met\n`;
-    prompt += `4. Make only the changes necessary to complete this task\n`;
-    prompt += `5. After completion, provide a summary of changes\n\n`;
+    prompt += `## Implementation Instructions\n\n`;
+    prompt += `Follow these steps to complete the task:\n\n`;
+    prompt += `1. **Explore the codebase**: Read relevant files to understand the current implementation\n`;
+    prompt += `2. **Implement the changes**: Create, modify, or delete files as needed to complete the task\n`;
+    prompt += `3. **Verify criteria**: Ensure all acceptance criteria are met by your implementation\n`;
+    prompt += `4. **Be focused**: Make ONLY the changes necessary to complete this specific task\n`;
+    prompt += `5. **Provide summary**: After completion, summarize what was changed and why\n\n`;
+
+    prompt += `## Important Notes\n\n`;
+    prompt += `- This is an autonomous execution - you must actually write/modify code\n`;
+    prompt += `- Use appropriate tools (Read, Write, Edit, Bash, etc.) to make changes\n`;
+    prompt += `- If you need clarification, make reasonable assumptions based on the task context\n`;
+    prompt += `- Ensure your code follows existing patterns and conventions in the codebase\n`;
+    prompt += `- Test your implementation if possible (run relevant tests or checks)\n\n`;
+
+    prompt += `BEGIN IMPLEMENTATION NOW.\n`;
 
     return prompt;
   }
 
   /**
    * Execute a task using Claude Code SDK
-   * Spawns a new claude CLI process with the task prompt
+   * Uses the SDK to run non-interactively with bypassed permissions
    */
   private async executeWithClaude(task: RalphTask, prompt: string): Promise<TaskResult> {
-    const { spawn } = await import('child_process');
-    const fs = await import('fs/promises');
-    const path = await import('path');
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    const git = await import('simple-git');
 
-    // Create a temporary file with the prompt
-    const promptDir = path.join(this.options.projectRoot, '.ralph', 'prompts');
-    await fs.mkdir(promptDir, { recursive: true });
-
-    const promptFile = path.join(promptDir, `${task.id}.md`);
-    await fs.writeFile(promptFile, prompt, 'utf-8');
+    console.log(`  [DEBUG] Starting SDK execution for ${task.id}`);
+    console.log(`  [DEBUG] Project root: ${this.options.projectRoot}`);
+    console.log(`  [DEBUG] Prompt length: ${prompt.length}`);
 
     // Track initial git state
-    const git = await import('simple-git');
     const gitInstance = git.simpleGit(this.options.projectRoot);
     const initialStatus = await gitInstance.status();
 
-    // Spawn claude process with the prompt
-    const claude = spawn('claude', [promptFile], {
-      cwd: this.options.projectRoot,
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        CLAUDE_TASK_ID: task.id,
-        CLAUDE_PROJECT_ROOT: this.options.projectRoot,
+    // Use the SDK to run Claude Code non-interactively
+    const sdkQuery = query({
+      prompt,
+      options: {
+        cwd: this.options.projectRoot,
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+        // Don't persist sessions for autonomous tasks
+        persistSession: false,
+        // Load project settings to get CLAUDE.md context
+        settingSources: ['project'],
+        // Use the default tool preset
+        tools: { type: 'preset', preset: 'claude_code' },
+        // Explicitly use the Claude Code system prompt with our custom instructions
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append: '\n\nWhen given a task to implement, you MUST actively write, modify, or delete code files to complete the implementation. Do not just describe what should be done - actually make the code changes using available tools.',
+        },
+        // Optional: limit to one turn for autonomous execution
+        // maxTurns: 10,
       },
     });
 
-    // Wait for claude to complete
-    await new Promise<void>((resolve, reject) => {
-      claude.on('close', (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error(`Claude process exited with code ${code}`));
-        }
-      });
+    // Consume the async generator to wait for completion
+    let finalResult: string = '';
 
-      claude.on('error', (err) => {
-        reject(new Error(`Failed to spawn claude process: ${err.message}`));
-      });
-    });
+    try {
+      for await (const message of sdkQuery) {
+        if (message.type === 'result') {
+          if (message.subtype === 'success') {
+            finalResult = message.result || '';
+          } else if (message.subtype === 'error_during_execution') {
+            throw new Error(`Task execution failed: ${message.errors.join(', ')}`);
+          }
+        }
+      }
+    } catch (error) {
+      // Re-throw with more context
+      throw new Error(`Claude SDK execution failed for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     // Get final git state to determine what changed
     const finalStatus = await gitInstance.status();
@@ -368,7 +397,7 @@ export class RalphExecutor {
       filesDeleted,
       acceptanceCriteriaPassed: verification.passed,
       acceptanceCriteriaFailed: verification.failed,
-      output: `Executed task ${task.id}`,
+      output: finalResult || `Executed task ${task.id}`,
     };
 
     return result;
@@ -514,12 +543,18 @@ export class RalphExecutor {
       } catch (error) {
         console.error(`\n✗ ${taskId} failed: ${error}`);
 
-        // Retry logic could go here
-        if ((this.session.taskHistory.find(h => h.taskId === taskId)?.attempts ?? 1) >= (this.options.maxRetries || 3)) {
-          console.error(`  Max retries reached for ${taskId}, continuing to next task`);
+        // Count total attempts for this task
+        const totalAttempts = this.session.taskHistory.filter(h => h.taskId === taskId).length;
+        const maxRetries = this.options.maxRetries || 3;
+
+        if (totalAttempts >= maxRetries) {
+          console.error(`  Max retries (${maxRetries}) reached for ${taskId}, marking as failed and continuing`);
+          // Add to failedTasks to prevent infinite retry loop
+          this.session.failedTasks.add(taskId);
+          // Add to completedTasks so getNextTask will skip this task
+          this.session.completedTasks.add(taskId);
         } else {
-          console.error(`  Retrying ${taskId}...`);
-          // Implement retry logic
+          console.error(`  Attempt ${totalAttempts}/${maxRetries} for ${taskId}, will retry...`);
         }
       }
 

@@ -53,7 +53,66 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
+  }
+
+  /* Smooth theme transitions */
+  *,
+  *::before,
+  *::after {
+    @apply transition-colors duration-300 ease-in-out;
+  }
+
+  /* Disable transition on layout shifts */
+  .no-transition {
+    @apply !transition-none;
+  }
+}
+
+@layer utilities {
+  /* Custom scrollbar for webkit browsers */
+  .scrollbar-thin::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    @apply bg-secondary;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/30 rounded-full;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/50;
+  }
+
+  /* Text gradient for headings */
+  .text-gradient {
+    @apply bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent;
+  }
+
+  /* Card hover effects */
+  .card-hover {
+    @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-1;
+  }
+
+  /* Mobile-first spacing */
+  .mobile-padding {
+    @apply px-4 py-6;
+  }
+
+  @media (min-width: 640px) {
+    .mobile-padding {
+      @apply px-6 py-8;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .mobile-padding {
+      @apply px-8 py-10;
+    }
   }
 }

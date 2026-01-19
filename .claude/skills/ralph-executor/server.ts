@@ -287,9 +287,13 @@ function createApp(config: ServerConfig): express.Application {
     }
 
     if (session.result) {
+      // Determine actual status based on whether any tasks failed
+      const hasFailed = session.result.failedTasks.length > 0;
+      const actualStatus = hasFailed ? 'partial' : 'completed';
+      console.log(`  Result status: ${actualStatus} (completed: ${session.result.completedTasks.length}, failed: ${session.result.failedTasks.length})`);
       res.json({
         sessionId: id,
-        status: 'completed',
+        status: actualStatus,
         result: session.result,
       });
       return;

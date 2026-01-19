@@ -1,160 +1,127 @@
-/**
- * API Route: GET /api/plans/[id]
- *
- * Returns a specific Ralph implementation plan by ID.
- * The plan ID corresponds to the directory containing IMPLEMENTATION_PLAN.md.
- */
+import { NextResponse } from 'next/server';
+import { loadPlan, validateRalphPlan } from '../../../../lib/plan-utils';
+import path from 'path';
+import { readFile } from 'fs/promises';
 
-import { NextRequest, NextResponse } from 'next/server';
-import { planFromMarkdown } from '@/lib/ralph/parser';
-import { validateRalphPlan } from '@/lib/ralph/parser';
-import { readFile, access, readdir } from 'fs/promises';
-import { join } from 'path';
-
-/**
- * Recursively searches for a plan by matching directory name to ID
- */
-async function findPlanById(dir: string, targetId: string, basePath: string = dir): Promise<string | null> {
-  try {
-    const entries = await readdir(dir, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name);
-
-      // Skip common directories to ignore
-      if (
-        entry.name === 'node_modules' ||
-        entry.name === '.git' ||
-        entry.name === '.next' ||
-        entry.name === 'dist' ||
-        entry.name === 'build'
-      ) {
-        continue;
-      }
-
-      if (entry.isDirectory()) {
-        // Check if this directory's ID matches
-        const dirId = entry.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-        if (dirId === targetId) {
-          const planPath = join(fullPath, 'IMPLEMENTATION_PLAN.md');
-          try {
-            await access(planPath);
-            return planPath;
-          } catch {
-            // File doesn't exist, continue searching
-          }
-        }
-
-        // Recursively search subdirectories
-        const result = await findPlanById(fullPath, targetId, basePath);
-        if (result) {
-          return result;
-        }
-      }
-    }
-  } catch (error) {
-    // Skip directories we can't read
-  }
-
-  return null;
-}
-
-/**
- * Extracts plan name from the path
- */
-function extractPlanName(path: string): string {
-  const parts = path.split('/');
-  const dirName = parts[parts.length - 2] || 'Project';
-  return dirName
-    .split('-')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
+interface RouteContext {
+  params: Promise<{
+    id: string;
+  }>;
 }
 
 /**
  * GET /api/plans/[id]
  *
- * Returns the full implementation plan for the given ID.
+ * Returns a specific Ralph implementation plan by ID.
+ * The ID corresponds to the plan directory name.
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: Request, context: RouteContext) {
   try {
-    const { id } = params;
+    const { id } = await context.params;
 
-    if (!id || id === 'undefined' || id === '[object Object]') {
+    // Validate the plan ID to prevent directory traversal
+    if (!id || id.includes('..') || id.includes('/') || id.includes('\\')) {
       return NextResponse.json(
         {
           success: false,
           error: 'Invalid plan ID',
+          message: 'Plan ID contains invalid characters',
         },
-        { status: 400 }
+        {
+          status: 400,
+          headers: getCorsHeaders(),
+        }
       );
     }
 
-    // Get the project root from query param or use current working directory
-    const searchParams = request.nextUrl.searchParams;
-    const projectRoot = searchParams.get('path') || process.cwd();
+    // Get project root
+    const projectRoot = path.resolve(process.cwd(), '..');
+    const planPath = path.join(projectRoot, 'plans', id, 'IMPLEMENTATION_PLAN.md');
 
-    // Find the plan file
-    const planPath = await findPlanById(projectRoot, id);
+    // Try to read the plan file
+    let planContent: string;
+    try {
+      planContent = await readFile(planPath, 'utf-8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Plan not found',
+            message: `No plan found with ID: ${id}`,
+          },
+          {
+            status: 404,
+            headers: getCorsHeaders(),
+          }
+        );
+      }
+      throw error;
+    }
 
-    if (!planPath) {
+    // Parse the plan from markdown
+    const plan = loadPlan(planPath);
+
+    // Validate the plan structure
+    const validation = validateRalphPlan(await plan);
+
+    if (!validation.valid) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Plan not found',
-          message: `No implementation plan found with ID "${id}"`,
+          error: 'Invalid plan format',
+          message: 'The plan file contains errors',
+          validationErrors: validation.errors,
+          warnings: validation.warnings,
         },
-        { status: 404 }
+        {
+          status: 400,
+          headers: getCorsHeaders(),
+        }
       );
     }
 
-    // Read and parse the plan
-    const content = await readFile(planPath, 'utf-8');
-    const plan = planFromMarkdown(content);
+    const parsedPlan = await plan;
 
-    // Validate the plan
-    const validation = validateRalphPlan(plan);
-
+    // Return the plan with validation results
     return NextResponse.json(
       {
         success: true,
         plan: {
-          ...plan,
           id,
-          name: extractPlanName(planPath),
-          path: planPath,
+          name: parsedPlan.projectName,
+          description: parsedPlan.description,
+          overview: parsedPlan.overview,
+          tasks: parsedPlan.tasks,
+          metadata: {
+            totalTasks: parsedPlan.totalTasks,
+            generatedAt: parsedPlan.generatedAt,
+            estimatedDuration: parsedPlan.estimatedDuration,
+          },
+          validation: {
+            valid: validation.valid,
+            warnings: validation.warnings,
+          },
         },
-        validation,
       },
       {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        },
+        status: 200,
+        headers: getCorsHeaders(),
       }
     );
   } catch (error) {
-    const errorMessage = (error as Error).message;
-
-    // Determine appropriate status code based on error type
-    let statusCode = 500;
-    if (errorMessage.includes('not found') || errorMessage.includes('ENOENT')) {
-      statusCode = 404;
-    } else if (errorMessage.includes('parse') || errorMessage.includes('invalid')) {
-      statusCode = 400;
-    }
+    console.error('Error loading plan:', error);
 
     return NextResponse.json(
       {
         success: false,
         error: 'Failed to load plan',
-        message: errorMessage,
+        message: error instanceof Error ? error.message : 'Unknown error',
       },
-      { status: statusCode }
+      {
+        status: 500,
+        headers: getCorsHeaders(),
+      }
     );
   }
 }
@@ -162,15 +129,22 @@ export async function GET(
 /**
  * OPTIONS /api/plans/[id]
  *
- * Handles CORS preflight requests.
+ * Handle CORS preflight requests
  */
 export async function OPTIONS() {
   return new NextResponse(null, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
+    status: 204,
+    headers: getCorsHeaders(),
   });
+}
+
+/**
+ * Helper function to get CORS headers
+ */
+function getCorsHeaders(): HeadersInit {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
 }
