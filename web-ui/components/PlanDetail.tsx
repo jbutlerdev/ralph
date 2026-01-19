@@ -268,7 +268,7 @@ export function PlanDetail({ planId }: { planId: string }) {
             </p>
           </div>
           <div className="text-right sm:text-left">
-            <div className="text-2xl sm:text-3xl font-bold">{progress}%</div>
+            <div className="text-2xl sm:text-3xl font-bold" data-testid="progress-percent">{progress}%</div>
             <div className="text-xs sm:text-sm text-muted-foreground">Complete</div>
           </div>
         </div>
@@ -291,7 +291,7 @@ export function PlanDetail({ planId }: { planId: string }) {
         {/* Stats Grid */}
         <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
           {/* Total Tasks */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3" data-testid="total-tasks">
             <div className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-lg bg-primary/10">
               <ListChecks className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
             </div>
@@ -307,7 +307,7 @@ export function PlanDetail({ planId }: { planId: string }) {
               <CheckCircle2 className="h-4 w-4 sm:h-5 sm:w-5 text-green-600 dark:text-green-400" />
             </div>
             <div>
-              <div className="text-xl sm:text-2xl font-bold">{completedTasks}</div>
+              <div className="text-xl sm:text-2xl font-bold" data-testid="completed-tasks">{completedTasks}</div>
               <div className="text-[10px] sm:text-xs text-muted-foreground">Completed</div>
             </div>
           </div>
@@ -318,7 +318,7 @@ export function PlanDetail({ planId }: { planId: string }) {
               <Circle className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600 dark:text-blue-400 fill-blue-500/20" />
             </div>
             <div>
-              <div className="text-xl sm:text-2xl font-bold">{inProgressTasks}</div>
+              <div className="text-xl sm:text-2xl font-bold" data-testid="in-progress-tasks">{inProgressTasks}</div>
               <div className="text-[10px] sm:text-xs text-muted-foreground">In Progress</div>
             </div>
           </div>
@@ -329,7 +329,7 @@ export function PlanDetail({ planId }: { planId: string }) {
               <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5 text-red-600 dark:text-red-400" />
             </div>
             <div>
-              <div className="text-xl sm:text-2xl font-bold">{failedTasks}</div>
+              <div className="text-xl sm:text-2xl font-bold" data-testid="failed-tasks">{failedTasks}</div>
               <div className="text-[10px] sm:text-xs text-muted-foreground">Failed</div>
             </div>
           </div>
@@ -337,7 +337,7 @@ export function PlanDetail({ planId }: { planId: string }) {
 
         {/* Validation Warnings */}
         {plan.validation.warnings && plan.validation.warnings.length > 0 && (
-          <div className="mt-4 sm:mt-6 p-3 sm:p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-900/30">
+          <div className="mt-4 sm:mt-6 p-3 sm:p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-900/30" data-testid="validation-warnings">
             <div className="flex items-start gap-2">
               <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1 space-y-1">
@@ -359,7 +359,7 @@ export function PlanDetail({ planId }: { planId: string }) {
       {plan.overview && (
         <div className="rounded-lg border bg-card p-4 sm:p-6 shadow-sm">
           <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Project Overview</h2>
-          <div className="prose prose-xs sm:prose-sm dark:prose-invert max-w-none text-muted-foreground whitespace-pre-wrap">
+          <div className="prose prose-xs sm:prose-sm dark:prose-invert max-w-none text-muted-foreground whitespace-pre-wrap" data-testid="project-overview">
             {plan.overview}
           </div>
 

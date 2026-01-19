@@ -170,7 +170,7 @@ export function PlanList() {
         <div className="space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Implementation Plans</h1>
-            <ConnectionStatus />
+            <ConnectionStatus compact />
             {isStale && (
               <div
                 className={cn(

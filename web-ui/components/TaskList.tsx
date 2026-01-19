@@ -107,12 +107,12 @@ export function TaskList({ tasks, className }: TaskListProps) {
   return (
     <div className={className}>
       {/* Controls */}
-      <div className="mb-6 flex flex-wrap items-center gap-4">
+      <div className="mb-4 sm:mb-6 space-y-3 sm:space-y-0 sm:flex sm:flex-wrap sm:items-center sm:gap-4">
         {/* Filter */}
         <div className="flex items-center gap-2">
-          <label className="text-sm font-medium text-muted-foreground">Filter:</label>
+          <label className="text-xs sm:text-sm font-medium text-muted-foreground">Filter:</label>
           <Select value={filter} onValueChange={(value: TaskFilter) => setFilter(value)}>
-            <SelectTrigger className="w-[140px]">
+            <SelectTrigger className="w-full sm:w-[140px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -126,9 +126,9 @@ export function TaskList({ tasks, className }: TaskListProps) {
 
         {/* Sort */}
         <div className="flex items-center gap-2">
-          <label className="text-sm font-medium text-muted-foreground">Sort by:</label>
+          <label className="text-xs sm:text-sm font-medium text-muted-foreground">Sort:</label>
           <Select value={sortBy} onValueChange={(value: TaskSortBy) => setSortBy(value)}>
-            <SelectTrigger className="w-[130px]">
+            <SelectTrigger className="w-full sm:w-[130px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -138,32 +138,36 @@ export function TaskList({ tasks, className }: TaskListProps) {
               <SelectItem value="status">Status</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={toggleSortOrder}>
+          <Button variant="outline" size="sm" onClick={toggleSortOrder} className="shrink-0">
             {sortOrder === 'asc' ? '↑' : '↓'}
           </Button>
         </div>
 
         {/* Display Options */}
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-auto">
           <Button
             variant={showDescriptions ? 'default' : 'outline'}
             size="sm"
             onClick={() => setShowDescriptions(!showDescriptions)}
+            className="flex-1 sm:flex-none text-xs sm:text-sm"
           >
-            Descriptions
+            <span className="hidden xs:inline">Descriptions</span>
+            <span className="xs:hidden">Desc</span>
           </Button>
           <Button
             variant={showAcceptanceCriteria ? 'default' : 'outline'}
             size="sm"
             onClick={() => setShowAcceptanceCriteria(!showAcceptanceCriteria)}
+            className="flex-1 sm:flex-none text-xs sm:text-sm"
           >
-            Criteria
+            <span className="hidden xs:inline">Criteria</span>
+            <span className="xs:hidden">Crit</span>
           </Button>
         </div>
       </div>
 
       {/* Task Count */}
-      <div className="mb-4 text-sm text-muted-foreground">
+      <div className="mb-4 text-xs sm:text-sm text-muted-foreground">
         Showing {filteredAndSortedTasks.length} of {tasks.length} task{tasks.length !== 1 ? 's' : ''}
       </div>
 
