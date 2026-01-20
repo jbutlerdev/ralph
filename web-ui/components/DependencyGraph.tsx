@@ -103,9 +103,9 @@ export function DependencyGraph({ tasks, planId, className }: DependencyGraphPro
         type: 'default',
         data: {
           label: (
-            <div className="p-2 min-w-[180px]">
-              <div className="font-semibold text-sm mb-1">{task.id}</div>
-              <div className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2">
+            <div className="p-2 min-w-[140px] sm:min-w-[180px]">
+              <div className="font-semibold text-xs sm:text-sm mb-1">{task.id}</div>
+              <div className="text-[10px] sm:text-xs text-muted-foreground dark:text-gray-400 line-clamp-2">
                 {task.title}
               </div>
               <div className="flex items-center gap-1 mt-1">
@@ -113,7 +113,7 @@ export function DependencyGraph({ tasks, planId, className }: DependencyGraphPro
                 {status === 'in_progress' && <Clock className="h-3 w-3 text-yellow-500" />}
                 {status === 'failed' && <AlertTriangle className="h-3 w-3 text-red-500" />}
                 {status === 'pending' && <Circle className="h-3 w-3 text-gray-400" />}
-                <span className={`text-xs capitalize ${colors.text}`}>
+                <span className={`text-[10px] sm:text-xs capitalize ${colors.text}`}>
                   {status.replace('_', ' ')}
                 </span>
               </div>
@@ -124,14 +124,14 @@ export function DependencyGraph({ tasks, planId, className }: DependencyGraphPro
         },
         position: { x: 0, y: 0 },
         style: {
-          background: 'white',
+          background: 'hsl(var(--card))',
           border: `2px solid ${status === 'completed' ? '#22c55e' : status === 'in_progress' ? '#eab308' : status === 'failed' ? '#ef4444' : '#9ca3af'}`,
           borderRadius: '8px',
           padding: '0',
-          minWidth: '200px',
+          minWidth: '160px',
           boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
         },
-        className: colors.bg,
+        className: `${colors.bg} dark:[&:hover]:shadow-lg transition-shadow`,
       };
     });
   }, [tasks, getTaskStatus, getStatusColor]);
@@ -153,12 +153,13 @@ export function DependencyGraph({ tasks, planId, className }: DependencyGraphPro
             animated: false,
             markerEnd: {
               type: MarkerType.ArrowClosed,
-              color: '#9ca3af',
+              color: 'hsl(var(--muted-foreground) / 0.5)',
             },
             style: {
-              stroke: '#9ca3af',
+              stroke: 'hsl(var(--muted-foreground) / 0.5)',
               strokeWidth: 2,
             },
+            className: 'dark:stroke-gray-500/50 transition-colors',
           });
         }
       });
@@ -178,17 +179,18 @@ export function DependencyGraph({ tasks, planId, className }: DependencyGraphPro
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-    // Configure layout
+    // Configure layout - responsive based on viewport
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
     dagreGraph.setGraph({
       rankdir: 'TB', // Top to Bottom
-      nodesep: 80, // Horizontal spacing
-      ranksep: 120, // Vertical spacing
-      edgesep: 40,
+      nodesep: isMobile ? 40 : 80, // Horizontal spacing
+      ranksep: isMobile ? 80 : 120, // Vertical spacing
+      edgesep: isMobile ? 20 : 40,
     });
 
     // Add nodes to graph
     nodes.forEach((node) => {
-      dagreGraph.setNode(node.id, { width: 220, height: 100 });
+      dagreGraph.setNode(node.id, { width: isMobile ? 160 : 220, height: isMobile ? 80 : 100 });
     });
 
     // Add edges to graph
@@ -264,63 +266,71 @@ export function DependencyGraph({ tasks, planId, className }: DependencyGraphPro
   }, [nodes, edges, isAutoLayout, applyDagreLayout]);
 
   return (
-    <div className={`w-full h-[600px] relative ${className || ''}`}>
+    <div className={`w-full h-[400px] sm:h-[500px] lg:h-[600px] relative ${className || ''}`} data-testid="dependency-graph">
       {/* Controls Bar */}
-      <div className="absolute top-4 right-4 z-10 flex items-center gap-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-2">
+      <div className="absolute top-2 sm:top-4 right-2 sm:right-4 z-10 flex items-center gap-1 sm:gap-2 bg-card dark:bg-gray-800 rounded-lg shadow-lg p-1 sm:p-2">
         <Button
           variant="outline"
           size="sm"
           onClick={applyDagreLayout}
           title="Auto Layout"
+          className="h-7 w-7 sm:h-auto sm:w-auto px-1 sm:px-2"
         >
-          <LayoutTemplate className="h-4 w-4" />
+          <LayoutTemplate className="h-3 w-3 sm:h-4 sm:w-4" />
+          <span className="hidden sm:inline ml-1 sm:ml-2">Layout</span>
         </Button>
-        <div className="w-px h-6 bg-gray-200 dark:bg-gray-700" />
+        <div className="w-px h-4 sm:h-6 bg-border dark:bg-gray-700" />
         <Button
           variant="outline"
           size="sm"
           onClick={handleZoomIn}
           title="Zoom In"
+          className="h-7 w-7 sm:h-auto sm:w-auto px-1 sm:px-2"
         >
-          <ZoomIn className="h-4 w-4" />
+          <ZoomIn className="h-3 w-3 sm:h-4 sm:w-4" />
+          <span className="hidden sm:inline ml-1 sm:ml-2">In</span>
         </Button>
         <Button
           variant="outline"
           size="sm"
           onClick={handleZoomOut}
           title="Zoom Out"
+          className="h-7 w-7 sm:h-auto sm:w-auto px-1 sm:px-2"
         >
-          <ZoomOut className="h-4 w-4" />
+          <ZoomOut className="h-3 w-3 sm:h-4 sm:w-4" />
+          <span className="hidden sm:inline ml-1 sm:ml-2">Out</span>
         </Button>
         <Button
           variant="outline"
           size="sm"
           onClick={handleFitView}
           title="Fit View"
+          className="h-7 w-7 sm:h-auto sm:w-auto px-1 sm:px-2"
         >
-          <Maximize2 className="h-4 w-4" />
+          <Maximize2 className="h-3 w-3 sm:h-4 sm:w-4" />
+          <span className="hidden sm:inline ml-1 sm:ml-2">Fit</span>
         </Button>
       </div>
 
       {/* Legend */}
-      <div className="absolute bottom-4 left-4 z-10 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4">
-        <h4 className="text-xs font-semibold mb-2 text-gray-700 dark:text-gray-300">Status Legend</h4>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded bg-green-500" />
-            <span className="text-xs text-gray-700 dark:text-gray-300">Completed</span>
+      <div className="absolute bottom-2 sm:bottom-4 left-2 sm:left-4 z-10 bg-card dark:bg-gray-800 rounded-lg shadow-lg p-2 sm:p-4 max-w-[150px] sm:max-w-none">
+        <h4 className="text-[10px] sm:text-xs font-semibold mb-1.5 sm:mb-2 text-foreground">Status</h4>
+        <div className="space-y-1 sm:space-y-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="w-3 h-3 sm:w-4 sm:h-4 rounded bg-green-500" />
+            <span className="text-[10px] sm:text-xs text-muted-foreground">Done</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded bg-yellow-500" />
-            <span className="text-xs text-gray-700 dark:text-gray-300">In Progress</span>
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="w-3 h-3 sm:w-4 sm:h-4 rounded bg-yellow-500" />
+            <span className="text-[10px] sm:text-xs text-muted-foreground">In Progress</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded bg-gray-400" />
-            <span className="text-xs text-gray-700 dark:text-gray-300">Pending</span>
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="w-3 h-3 sm:w-4 sm:h-4 rounded bg-gray-400" />
+            <span className="text-[10px] sm:text-xs text-muted-foreground">Pending</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded bg-red-500" />
-            <span className="text-xs text-gray-700 dark:text-gray-300">Failed</span>
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="w-3 h-3 sm:w-4 sm:h-4 rounded bg-red-500" />
+            <span className="text-[10px] sm:text-xs text-muted-foreground">Failed</span>
           </div>
         </div>
       </div>
@@ -337,9 +347,9 @@ export function DependencyGraph({ tasks, planId, className }: DependencyGraphPro
         fitView
         fitViewOptions={{ padding: 0.2 }}
         attributionPosition="bottom-right"
-        className="bg-gray-50 dark:bg-gray-900"
+        className="bg-muted dark:bg-gray-900"
       >
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#cbd5e1" />
+        <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="hsl(var(--border))" />
         <Controls />
         <MiniMap
           nodeColor={(node) => {
@@ -358,15 +368,16 @@ export function DependencyGraph({ tasks, planId, className }: DependencyGraphPro
           nodeStrokeWidth={2}
           zoomable
           pannable
+          className="hidden sm:block"
         />
       </ReactFlow>
 
       {/* Empty State */}
       {tasks.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-          <div className="text-center">
-            <p className="text-lg text-gray-600 dark:text-gray-400">No tasks to display</p>
-            <p className="text-sm text-gray-500 dark:text-gray-500 mt-1">
+        <div className="absolute inset-0 flex items-center justify-center bg-muted dark:bg-gray-900">
+          <div className="text-center px-4">
+            <p className="text-base sm:text-lg text-muted-foreground">No tasks to display</p>
+            <p className="text-sm text-muted-foreground/70 mt-1">
               Add tasks to see the dependency graph
             </p>
           </div>

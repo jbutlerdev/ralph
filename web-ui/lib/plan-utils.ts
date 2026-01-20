@@ -6,6 +6,11 @@
  */
 
 /**
+ * Valid status values for a task in the plan
+ */
+export type TaskStatus = 'To Do' | 'In Progress' | 'Implemented' | 'Needs Re-Work' | 'Verified';
+
+/**
  * Task interface
  */
 export interface RalphTask {
@@ -18,6 +23,7 @@ export interface RalphTask {
   specReference?: string;
   estimatedComplexity?: 1 | 2 | 3 | 4 | 5;
   tags?: string[];
+  status: TaskStatus;
 }
 
 /**
@@ -36,6 +42,9 @@ export interface RalphPlan {
 /**
  * Converts a Markdown implementation plan to a RalphPlan object
  */
+const VALID_STATUSES: TaskStatus[] = ['To Do', 'In Progress', 'Implemented', 'Needs Re-Work', 'Verified'];
+const DEFAULT_STATUS: TaskStatus = 'To Do';
+
 export function planFromMarkdown(markdown: string): RalphPlan {
   const tasks: RalphTask[] = [];
   const lines = markdown.split('\n');
@@ -68,6 +77,7 @@ export function planFromMarkdown(markdown: string): RalphPlan {
         dependencies: [],
         acceptanceCriteria: [],
         priority: 'medium',
+        status: DEFAULT_STATUS,
       };
       continue;
     }
@@ -85,6 +95,19 @@ export function planFromMarkdown(markdown: string): RalphPlan {
     const priorityMatch = line.match(/\*\*Priority:\*\*\s*(high|medium|low)/i);
     if (priorityMatch) {
       currentTask.priority = priorityMatch[1].toLowerCase() as RalphTask['priority'];
+      continue;
+    }
+
+    // Parse status
+    const statusMatch = line.match(/\*\*Status:\*\*\s*(.+)$/i);
+    if (statusMatch) {
+      const statusValue = statusMatch[1].trim();
+      if (VALID_STATUSES.includes(statusValue as TaskStatus)) {
+        currentTask.status = statusValue as TaskStatus;
+      } else {
+        // Default to "To Do" if invalid status
+        currentTask.status = DEFAULT_STATUS;
+      }
       continue;
     }
 
@@ -134,10 +157,14 @@ export function planFromMarkdown(markdown: string): RalphPlan {
     tasks.push(currentTask as RalphTask);
   }
 
-  // Generate ID from title if not present
+  // Generate ID from title if not present and ensure status is set
   tasks.forEach((task, index) => {
     if (!task.id) {
       task.id = `task-${String(index + 1).padStart(3, '0')}`;
+    }
+    // Ensure status is set
+    if (!task.status) {
+      task.status = DEFAULT_STATUS;
     }
   });
 

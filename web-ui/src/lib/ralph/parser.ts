@@ -36,8 +36,8 @@ export function planFromMarkdown(markdown: string): RalphPlan {
     // Detect task header: ### Task N: Title or ### Title
     const taskHeaderMatch = line.match(/^###\s+(Task\s+\d+:\s*)?(.+)$/);
     if (taskHeaderMatch) {
-      // Save previous task
-      if (currentTask?.id && currentTask?.title) {
+      // Save previous task (only need title, ID can be auto-generated)
+      if (currentTask?.title) {
         tasks.push(currentTask as RalphTask);
       }
       // Start new task
@@ -120,8 +120,8 @@ export function planFromMarkdown(markdown: string): RalphPlan {
     }
   }
 
-  // Save last task
-  if (currentTask?.id && currentTask?.title) {
+  // Save last task (only need title, ID can be auto-generated)
+  if (currentTask?.title) {
     tasks.push(currentTask as RalphTask);
   }
 

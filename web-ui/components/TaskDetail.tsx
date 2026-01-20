@@ -147,20 +147,20 @@ export function TaskDetail({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" aria-describedby="task-description">
+      <DialogContent className="max-w-2xl sm:max-w-3xl max-h-[85vh] sm:max-h-[90vh] overflow-y-auto" aria-describedby="task-description">
         <DialogHeader>
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-2">
                 {/* Task ID */}
-                <span className="text-sm font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                <span className="text-xs sm:text-sm font-mono text-muted-foreground bg-muted px-1.5 sm:px-2 py-0.5 rounded">
                   {task.id}
                 </span>
 
                 {/* Priority Badge */}
                 <span
                   className={cn(
-                    'text-xs font-medium px-2 py-0.5 rounded-full',
+                    'text-[10px] sm:text-xs font-medium px-1.5 sm:px-2 py-0.5 rounded-full',
                     getPriorityColor(task.priority)
                   )}
                   aria-label={`Priority: ${task.priority}`}
@@ -172,7 +172,7 @@ export function TaskDetail({
                 {complexityInfo && (
                   <span
                     className={cn(
-                      'text-xs font-medium px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground',
+                      'text-[10px] sm:text-xs font-medium px-1.5 sm:px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground',
                       complexityInfo.color
                     )}
                     aria-label={`Complexity: ${complexityInfo.label}`}
@@ -184,7 +184,7 @@ export function TaskDetail({
                 {/* Status Badge */}
                 <span
                   className={cn(
-                    'text-xs font-medium px-2 py-0.5 rounded-full flex items-center gap-1',
+                    'text-[10px] sm:text-xs font-medium px-1.5 sm:px-2 py-0.5 rounded-full flex items-center gap-1',
                     getStatusColor(taskStatus)
                   )}
                   aria-label={`Status: ${getStatusLabel(taskStatus)}`}
@@ -194,16 +194,16 @@ export function TaskDetail({
                 </span>
               </div>
 
-              <DialogTitle className="text-2xl">{task.title}</DialogTitle>
+              <DialogTitle className="text-xl sm:text-2xl">{task.title}</DialogTitle>
             </div>
 
             {/* Close button */}
             <button
               onClick={() => onOpenChange(false)}
-              className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none"
+              className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none self-start"
               aria-label="Close dialog"
             >
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4 sm:h-5 sm:w-5" />
               <span className="sr-only">Close</span>
             </button>
           </div>
@@ -213,7 +213,7 @@ export function TaskDetail({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 mt-4">
+        <div className="space-y-4 sm:space-y-6 mt-4">
           {/* Description */}
           <section>
             <h3 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-2">
@@ -352,25 +352,25 @@ export function TaskDetail({
           {/* Visual Dependency Graph */}
           {(task.dependencies.length > 0 || dependentTasks.length > 0) && (
             <section>
-              <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-muted-foreground mb-2 sm:mb-3 flex items-center gap-2">
                 <Network className="h-4 w-4" />
                 Dependency Graph
-                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                <span className="ml-1 text-xs font-normal text-muted-foreground hidden sm:inline">
                   Visual representation of task relationships
                 </span>
               </h3>
-              <div className="bg-muted/30 rounded-lg p-4 border">
-                <div className="flex items-center justify-center gap-4 flex-wrap">
+              <div className="bg-muted/30 rounded-lg p-3 sm:p-4 border">
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
                   {/* Parent tasks (dependencies) */}
                   {parentTasks.length > 0 && (
-                    <div className="flex flex-col items-center gap-2">
+                    <div className="flex flex-col items-center gap-2 w-full sm:w-auto">
                       <span className="text-xs font-medium text-muted-foreground">Dependencies</span>
                       <div className="flex flex-wrap justify-center gap-2">
                         {parentTasks.map(parentTask => (
                           <button
                             key={parentTask.id}
                             onClick={() => onNavigateToTask?.(parentTask.id)}
-                            className="px-3 py-2 rounded-lg border-2 border-orange-500 bg-orange-50 dark:bg-orange-950/20 hover:bg-orange-100 dark:hover:bg-orange-950/40 transition-colors text-xs font-medium text-orange-700 dark:text-orange-300 max-w-[120px]"
+                            className="px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg border-2 border-orange-500 bg-orange-50 dark:bg-orange-950/20 hover:bg-orange-100 dark:hover:bg-orange-950/40 transition-colors text-[10px] sm:text-xs font-medium text-orange-700 dark:text-orange-300 max-w-[100px] sm:max-w-[120px]"
                             aria-label={`View dependency ${parentTask.id}: ${parentTask.title}`}
                             title={parentTask.title}
                           >
@@ -381,39 +381,35 @@ export function TaskDetail({
                     </div>
                   )}
 
-                  {/* Arrow indicators */}
+                  {/* Arrow indicator - horizontal on desktop, vertical on mobile */}
                   {parentTasks.length > 0 && dependentTasks.length > 0 && (
-                    <div className="flex flex-col items-center gap-1">
-                      <ArrowRight className="h-5 w-5 text-muted-foreground" />
-                    </div>
+                    <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground rotate-90 sm:rotate-0" />
                   )}
 
                   {/* Current task */}
-                  <div className="flex flex-col items-center gap-2">
+                  <div className="flex flex-col items-center gap-2 w-full sm:w-auto">
                     <span className="text-xs font-medium text-muted-foreground">This Task</span>
-                    <div className="px-4 py-3 rounded-lg border-2 border-primary bg-primary/10 text-xs font-semibold text-primary max-w-[140px] text-center">
+                    <div className="px-3 py-2.5 sm:px-4 sm:py-3 rounded-lg border-2 border-primary bg-primary/10 text-[10px] sm:text-xs font-semibold text-primary max-w-[120px] sm:max-w-[140px] text-center">
                       <div className="truncate">{task.id}</div>
                       <div className="text-[10px] mt-1 truncate">{task.title}</div>
                     </div>
                   </div>
 
-                  {/* Arrow indicators */}
+                  {/* Arrow indicator - horizontal on desktop, vertical on mobile */}
                   {parentTasks.length > 0 && dependentTasks.length > 0 && (
-                    <div className="flex flex-col items-center gap-1">
-                      <ArrowRight className="h-5 w-5 text-muted-foreground" />
-                    </div>
+                    <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground rotate-90 sm:rotate-0" />
                   )}
 
                   {/* Child tasks (dependents) */}
                   {dependentTasks.length > 0 && (
-                    <div className="flex flex-col items-center gap-2">
+                    <div className="flex flex-col items-center gap-2 w-full sm:w-auto">
                       <span className="text-xs font-medium text-muted-foreground">Dependent Tasks</span>
                       <div className="flex flex-wrap justify-center gap-2">
                         {dependentTasks.map(childTask => (
                           <button
                             key={childTask.id}
                             onClick={() => onNavigateToTask?.(childTask.id)}
-                            className="px-3 py-2 rounded-lg border-2 border-blue-500 bg-blue-50 dark:bg-blue-950/20 hover:bg-blue-100 dark:hover:bg-blue-950/40 transition-colors text-xs font-medium text-blue-700 dark:text-blue-300 max-w-[120px]"
+                            className="px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg border-2 border-blue-500 bg-blue-50 dark:bg-blue-950/20 hover:bg-blue-100 dark:hover:bg-blue-950/40 transition-colors text-[10px] sm:text-xs font-medium text-blue-700 dark:text-blue-300 max-w-[100px] sm:max-w-[120px]"
                             aria-label={`View dependent task ${childTask.id}: ${childTask.title}`}
                             title={childTask.title}
                           >
@@ -426,19 +422,19 @@ export function TaskDetail({
                 </div>
 
                 {/* Legend */}
-                <div className="mt-4 pt-4 border-t border-muted-foreground/20">
-                  <div className="flex items-center justify-center gap-6 text-xs text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded border-2 border-orange-500 bg-orange-50 dark:bg-orange-950/20" />
-                      <span>Dependencies (must complete first)</span>
+                <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-muted-foreground/20">
+                  <div className="grid grid-cols-3 gap-2 sm:gap-6 text-[10px] sm:text-xs text-muted-foreground text-center">
+                    <div className="flex items-center justify-center gap-1.5 sm:gap-2">
+                      <div className="w-3 h-3 sm:w-4 sm:h-4 rounded border-2 border-orange-500 bg-orange-50 dark:bg-orange-950/20 flex-shrink-0" />
+                      <span className="truncate">Dependencies</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded border-2 border-primary bg-primary/10" />
-                      <span>Current task</span>
+                    <div className="flex items-center justify-center gap-1.5 sm:gap-2">
+                      <div className="w-3 h-3 sm:w-4 sm:h-4 rounded border-2 border-primary bg-primary/10 flex-shrink-0" />
+                      <span className="truncate">Current task</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 rounded border-2 border-blue-500 bg-blue-50 dark:bg-blue-950/20" />
-                      <span>Tasks that depend on this</span>
+                    <div className="flex items-center justify-center gap-1.5 sm:gap-2">
+                      <div className="w-3 h-3 sm:w-4 sm:h-4 rounded border-2 border-blue-500 bg-blue-50 dark:bg-blue-950/20 flex-shrink-0" />
+                      <span className="truncate">Dependents</span>
                     </div>
                   </div>
                 </div>

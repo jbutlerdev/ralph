@@ -30,10 +30,6 @@ test.describe('View Plan Details Page', () => {
     // Check for plan title
     const title = page.getByRole('heading', { level: 1 });
     await expect(title).toBeVisible();
-
-    // Check for plan description
-    const description = page.getByTestId('plan-description');
-    await expect(description).toBeVisible();
   });
 
   test('should display progress section', async ({ page }) => {

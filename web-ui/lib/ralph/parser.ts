@@ -4,7 +4,10 @@
  * Utilities for parsing and manipulating Ralph implementation plans.
  */
 
-import type { RalphPlan, RalphTask } from './types.js';
+import type { RalphPlan, RalphTask, TaskStatus } from './types.js';
+
+const VALID_STATUSES: TaskStatus[] = ['To Do', 'In Progress', 'Implemented', 'Needs Re-Work', 'Verified'];
+const DEFAULT_STATUS: TaskStatus = 'To Do';
 
 /**
  * Converts a Markdown implementation plan to a RalphPlan object
@@ -41,6 +44,7 @@ export function planFromMarkdown(markdown: string): RalphPlan {
         title: taskHeaderMatch[2],
         dependencies: [],
         acceptanceCriteria: [],
+        status: DEFAULT_STATUS,
       };
       continue;
     }
@@ -58,6 +62,19 @@ export function planFromMarkdown(markdown: string): RalphPlan {
     const priorityMatch = line.match(/\*\*Priority:\*\*\s*(high|medium|low)/i);
     if (priorityMatch) {
       currentTask.priority = priorityMatch[1].toLowerCase() as RalphTask['priority'];
+      continue;
+    }
+
+    // Parse status
+    const statusMatch = line.match(/\*\*Status:\*\*\s*(.+)$/i);
+    if (statusMatch) {
+      const statusValue = statusMatch[1].trim();
+      if (VALID_STATUSES.includes(statusValue as TaskStatus)) {
+        currentTask.status = statusValue as TaskStatus;
+      } else {
+        // Default to "To Do" if invalid status
+        currentTask.status = DEFAULT_STATUS;
+      }
       continue;
     }
 
@@ -107,10 +124,14 @@ export function planFromMarkdown(markdown: string): RalphPlan {
     tasks.push(currentTask as RalphTask);
   }
 
-  // Generate ID from title if not present
+  // Generate ID from title if not present and set default status
   tasks.forEach((task, index) => {
     if (!task.id) {
       (task as RalphTask).id = `task-${String(index + 1).padStart(3, '0')}`;
+    }
+    // Ensure status is set
+    if (!task.status) {
+      (task as RalphTask).status = DEFAULT_STATUS;
     }
   });
 

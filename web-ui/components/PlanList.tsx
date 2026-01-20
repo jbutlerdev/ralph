@@ -43,21 +43,17 @@ export interface PlansApiResponse {
  * - Pause/Resume polling (when using fallback)
  */
 export function PlanList() {
-  // Use WebSocket for real-time updates with polling fallback
-  const { connectionState, usingFallback, lastMessage } = useWebSocket({
-    fallbackToPolling: true,
-    pollingInterval: parseInt(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS || '5000', 10),
-    pollingFetcher: async () => {
-      const res = await fetch('/api/plans');
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
-      return res.json();
-    },
-  });
-
-  // Always call usePolling, but only enable when using fallback
-  const pollingResult = usePolling<PlansApiResponse>({
+  // Use polling directly to get plans data
+  const {
+    data: response,
+    loading,
+    error,
+    lastUpdated,
+    isStale,
+    isPaused,
+    refresh,
+    togglePause,
+  } = usePolling<PlansApiResponse>({
     fetcher: async () => {
       const res = await fetch('/api/plans');
       if (!res.ok) {
@@ -68,40 +64,13 @@ export function PlanList() {
     interval: parseInt(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS || '5000', 10),
     pollOnlyWhenVisible: true,
     staleTime: 60000,
-    enabled: usingFallback,
   });
 
-  const lastMessageAt = lastMessage ? new Date(lastMessage.timestamp) : null;
-
-  // Use WebSocket or polling result
-  const {
-    data: response,
-    loading,
-    error,
-    lastUpdated,
-    isStale,
-    isPaused,
-    refresh,
-    togglePause,
-  }: UsePollingResult<PlansApiResponse> = usingFallback
-    ? pollingResult
-    : ({
-        data: lastMessage?.data || null,
-        loading: false,
-        error: null,
-        lastUpdated: lastMessageAt,
-        isStale: false,
-        isPaused: false,
-        refresh: async () => {
-          // Trigger refresh via fetch
-          const res = await fetch('/api/plans');
-          if (!res.ok) {
-            throw new Error(`HTTP error! status: ${res.status}`);
-          }
-          return;
-        },
-        togglePause: () => {},
-      } as UsePollingResult<PlansApiResponse>);
+  // Also initialize WebSocket for real-time updates (non-blocking)
+  const { connectionState } = useWebSocket({
+    enabled: false,
+    fallbackToPolling: false,
+  });
 
   const plans = response?.plans || [];
 

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useTheme } from 'next-themes';
-import { Moon, Sun, Loader2, LayoutDashboard } from 'lucide-react';
+import { Moon, Sun, Loader2, LayoutDashboard, Monitor } from 'lucide-react';
 import { Button } from './ui/button';
 import { useEffect, useState } from 'react';
 
@@ -23,6 +23,27 @@ export function Header() {
     setMounted(true);
   }, []);
 
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('light');
+
+  // Update resolved theme when system theme changes
+  useEffect(() => {
+    if (theme === 'system' && mounted) {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      setResolvedTheme(mediaQuery.matches ? 'dark' : 'light');
+
+      const handleChange = (e: MediaQueryListEvent) => {
+        setResolvedTheme(e.matches ? 'dark' : 'light');
+      };
+
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    } else if (theme === 'dark') {
+      setResolvedTheme('dark');
+    } else if (theme === 'light') {
+      setResolvedTheme('light');
+    }
+  }, [theme, mounted]);
+
   const toggleTheme = () => {
     if (theme === 'dark') {
       setTheme('light');
@@ -37,20 +58,20 @@ export function Header() {
     if (!mounted) {
       return <Loader2 className="h-5 w-5 animate-spin" />;
     }
+    if (theme === 'system') {
+      return <Monitor className="h-5 w-5" />;
+    }
     if (theme === 'dark') {
       return <Moon className="h-5 w-5" />;
     }
-    if (theme === 'light') {
-      return <Sun className="h-5 w-5" />;
-    }
-    return <Loader2 className="h-5 w-5 animate-spin" />;
+    return <Sun className="h-5 w-5" />;
   };
 
   const getThemeLabel = () => {
     if (!mounted) return 'Loading...';
     if (theme === 'dark') return 'Dark mode';
     if (theme === 'light') return 'Light mode';
-    return 'System';
+    return `System (${resolvedTheme})`;
   };
 
   return (
