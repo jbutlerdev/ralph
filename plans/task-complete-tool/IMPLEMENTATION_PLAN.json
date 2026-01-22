@@ -1,0 +1,257 @@
+{
+  "projectName": "Ralph Task-Complete Tool",
+  "description": "Add a task-complete tool to the Ralph executor using MCP (Model Context Protocol)",
+  "overview": "Implement an MCP server that exposes a task-complete tool to the running Claude Code instance, allowing the AI to explicitly signal task completion and trigger progression to the next task in the Ralph Wiggum loop.",
+  "tasks": [
+    {
+      "id": "task-001",
+      "title": "Create MCP server infrastructure",
+      "description": "Create the MCP (Model Context Protocol) server infrastructure that will expose the task-complete tool to the running Claude Code instance. The server will use stdio transport and implement the MCP protocol to expose a single tool for marking tasks as complete.",
+      "priority": "high",
+      "dependencies": ["task-000"],
+      "acceptanceCriteria": [
+        "src/mcp/server.ts exists with MCP server implementation",
+        "Server exports startRalphMCPServer() function that returns a ChildProcess",
+        "Server uses @modelcontextprotocol/sdk types",
+        "Server implements stdio transport",
+        "Server exposes ralph_task_complete tool with proper schema",
+        "Server handles incoming tool calls and writes responses to stdout",
+        "TypeScript types are exported for tool parameters"
+      ],
+      "estimatedComplexity": 4,
+      "tags": ["mcp", "server", "infrastructure"]
+    },
+    {
+      "id": "task-002",
+      "title": "Implement task-complete tool logic",
+      "description": "Implement the core logic for the task-complete tool. When called, the tool should: (1) read the current session state, (2) mark the current task as completed, (3) optionally write completion metadata to a shared state file, and (4) signal completion back to the executor.",
+      "priority": "high",
+      "dependencies": ["task-001"],
+      "acceptanceCriteria": [
+        "src/mcp/task-complete-tool.ts exists with tool handler implementation",
+        "Tool accepts: taskId, notes, acceptanceCriteria, filesChanged parameters",
+        "Tool reads session state from .ralph/sessions/{sessionId}.json",
+        "Tool updates session.completedTasks Set with current task ID",
+        "Tool writes completion metadata to session file",
+        "Tool returns success response with updated session state",
+        "Tool handles error cases (invalid task ID, session not found)"
+      ],
+      "estimatedComplexity": 4,
+      "tags": ["mcp", "tool", "logic"]
+    },
+    {
+      "id": "task-003",
+      "title": "Integrate MCP server with executor",
+      "description": "Modify the RalphExecutor class to spawn the MCP server before invoking Claude Code CLI. The server process should be passed to the Claude Code subprocess via environment variables or MCP configuration.",
+      "priority": "high",
+      "dependencies": ["task-001", "task-002"],
+      "acceptanceCriteria": [
+        "src/executor.ts modified to import and use MCP server",
+        "RalphExecutor class has mcpServerProcess?: ChildProcess property",
+        "executeWithClaude() starts MCP server before spawning Claude Code",
+        "MCP server is passed to Claude Code via RALPH_MCP_SERVER env variable",
+        "MCP server is terminated in finally block after Claude Code exits",
+        "Error handling includes MCP server cleanup"
+      ],
+      "estimatedComplexity": 3,
+      "tags": ["executor", "integration", "mcp"]
+    },
+    {
+      "id": "task-004",
+      "title": "Update prompt generation to include tool documentation",
+      "description": "Modify the buildTaskPrompt() method in the executor to include documentation about the task-complete tool. The prompt should instruct Claude Code to call the tool when it has completed the task.",
+      "priority": "high",
+      "dependencies": ["task-001"],
+      "acceptanceCriteria": [
+        "buildTaskPrompt() includes section on available tools",
+        "Tool documentation includes name, description, and parameters",
+        "Prompt instructs AI to call tool after completing implementation",
+        "Prompt explains what happens after tool is called",
+        "Instructions include example tool call"
+      ],
+      "estimatedComplexity": 2,
+      "tags": ["prompt", "documentation", "executor"]
+    },
+    {
+      "id": "task-005",
+      "title": "Add MCP configuration to Claude Code invocation",
+      "description": "Configure the Claude Code CLI invocation to recognize and connect to the Ralph MCP server. This involves setting up the proper environment variables or MCP configuration that Claude Code reads to discover available MCP servers.",
+      "priority": "high",
+      "dependencies": ["task-001"],
+      "acceptanceCriteria": [
+        "Claude Code CLI receives MCP configuration via environment variable",
+        "Configuration includes stdio command for Ralph MCP server",
+        "Server is registered as ralph-executor in MCP config",
+        "Tool is accessible to Claude Code as ralph-executor:task_complete",
+        "Configuration uses absolute path to MCP server script"
+      ],
+      "estimatedComplexity": 3,
+      "tags": ["mcp", "config", "claude-code"]
+    },
+    {
+      "id": "task-006",
+      "title": "Update plan file status on task completion",
+      "description": "Implement logic to update the IMPLEMENTATION_PLAN.md file when a task is marked complete via the tool. The task's status field should be changed from 'To Do' to 'Implemented'.",
+      "priority": "medium",
+      "dependencies": ["task-002"],
+      "acceptanceCriteria": [
+        "Tool handler reads plan file from session.planPath",
+        "Task status in plan is updated to 'Implemented'",
+        "Plan file is written back to disk with updated status",
+        "File updates are atomic (write to temp, then rename)",
+        "Errors during plan update are logged but don't fail tool call"
+      ],
+      "estimatedComplexity": 3,
+      "tags": ["plan", "persistence", "status"]
+    },
+    {
+      "id": "task-007",
+      "title": "Add type definitions for MCP tools",
+      "description": "Create TypeScript type definitions for the MCP tool parameters and responses. This ensures type safety across the MCP server implementation.",
+      "priority": "medium",
+      "dependencies": ["task-001"],
+      "acceptanceCriteria": [
+        "src/types/mcp.ts exists with tool type definitions",
+        "TaskCompleteParams interface defined with all parameters",
+        "TaskCompleteResult interface defined for response",
+        "Types export from src/types/index.ts",
+        "JSDoc comments on all type definitions"
+      ],
+      "estimatedComplexity": 2,
+      "tags": ["typescript", "types", "mcp"]
+    },
+    {
+      "id": "task-008",
+      "title": "Add MCP server package dependencies",
+      "description": "Add the required MCP SDK dependencies to package.json. The project needs @modelcontextprotocol/sdk for implementing the MCP server protocol.",
+      "priority": "high",
+      "dependencies": ["task-001"],
+      "acceptanceCriteria": [
+        "package.json includes @modelcontextprotocol/sdk dependency",
+        "Version pinned to latest stable (e.g., ^0.6.0)",
+        "npm install run successfully",
+        "Dependencies added to package-lock.json",
+        "No peer dependency warnings"
+      ],
+      "estimatedComplexity": 1,
+      "tags": ["dependencies", "npm", "mcp"]
+    },
+    {
+      "id": "task-009",
+      "title": "Create MCP server build script",
+      "description": "Create a build script for compiling the MCP server TypeScript code to JavaScript. The server needs to be compiled before it can be executed by the Claude Code CLI.",
+      "priority": "medium",
+      "dependencies": ["task-001", "task-008"],
+      "acceptanceCriteria": [
+        "tsconfig.json includes src/mcp in compilation",
+        "Build script compiles MCP server to dist/mcp/",
+        "npm script build:mcp added",
+        "Compiled files can be executed with node",
+        "Source maps are generated for debugging"
+      ],
+      "estimatedComplexity": 2,
+      "tags": ["build", "typescript", "mcp"]
+    },
+    {
+      "id": "task-010",
+      "title": "Test MCP server with manual invocation",
+      "description": "Create a test script that manually invokes the MCP server with a sample task-complete call. This verifies that the server starts correctly, receives tool calls, and returns appropriate responses.",
+      "priority": "medium",
+      "dependencies": ["task-001", "task-002", "task-009"],
+      "acceptanceCriteria": [
+        "tools/test-mcp-server.ts test script exists",
+        "Script spawns MCP server process",
+        "Script sends tool call via stdin",
+        "Script receives and validates response via stdout",
+        "Test covers success case (valid task completion)",
+        "Test covers error case (invalid task ID)",
+        "npm script test:mcp runs the test"
+      ],
+      "estimatedComplexity": 3,
+      "tags": ["testing", "mcp", "integration"]
+    },
+    {
+      "id": "task-011",
+      "title": "Update .mcp.json configuration",
+      "description": "Update the project's .mcp.json file to include the Ralph executor MCP server configuration. This allows the server to be discovered when running Claude Code in the project directory.",
+      "priority": "medium",
+      "dependencies": ["task-009"],
+      "acceptanceCriteria": [
+        ".mcp.json includes ralph-executor server entry",
+        "Configuration uses stdio transport",
+        "Command points to compiled server: node dist/mcp/server.js",
+        "Environment variable RALPH_SESSION_ID is passed through",
+        "Server works when running claude in project directory"
+      ],
+      "estimatedComplexity": 2,
+      "tags": ["config", "mcp", "claude-code"]
+    },
+    {
+      "id": "task-012",
+      "title": "Update executor to pass session context to MCP server",
+      "description": "Modify the executor to pass session context (session ID, plan path, current task ID) to the MCP server via environment variables. The MCP server needs this context to properly update the correct session file.",
+      "priority": "high",
+      "dependencies": ["task-003"],
+      "acceptanceCriteria": [
+        "RALPH_SESSION_ID environment variable set to current session ID",
+        "RALPH_PLAN_PATH environment variable set to plan path",
+        "RALPH_PROJECT_ROOT environment variable set to project root",
+        "RALPH_CURRENT_TASK_ID environment variable set to current task ID",
+        "Environment variables are available to MCP server process"
+      ],
+      "estimatedComplexity": 2,
+      "tags": ["executor", "env", "context"]
+    },
+    {
+      "id": "task-013",
+      "title": "Add error handling and recovery",
+      "description": "Add comprehensive error handling for MCP server failures. If the MCP server crashes or fails to start, the executor should log the error but continue with fallback behavior (timeout-based completion detection).",
+      "priority": "medium",
+      "dependencies": ["task-003"],
+      "acceptanceCriteria": [
+        "Executor catches MCP server spawn errors",
+        "Error logged when MCP server fails to start",
+        "Executor continues if MCP server unavailable",
+        "Cleanup runs even if Claude Code subprocess fails",
+        "Timeout-based completion remains as fallback"
+      ],
+      "estimatedComplexity": 3,
+      "tags": ["error-handling", "robustness", "mcp"]
+    },
+    {
+      "id": "task-014",
+      "title": "Update documentation",
+      "description": "Update CLAUDE.md and README.md to document the new MCP server and task-complete tool. Include architecture diagrams, usage instructions, and troubleshooting tips.",
+      "priority": "low",
+      "dependencies": ["task-001", "task-003"],
+      "acceptanceCriteria": [
+        "CLAUDE.md includes MCP server section",
+        "Architecture diagram showing executor/MCP/Claude Code flow",
+        "Tool documentation in CLAUDE.md",
+        "README.md mentions task-complete feature",
+        "Troubleshooting section for common MCP issues"
+      ],
+      "estimatedComplexity": 2,
+      "tags": ["documentation", "mcp"]
+    },
+    {
+      "id": "task-015",
+      "title": "Create example demonstrating tool usage",
+      "description": "Create a simple example plan and demo that shows the task-complete tool in action. This helps validate the implementation and provides a reference for users.",
+      "priority": "low",
+      "dependencies": ["task-003", "task-004"],
+      "acceptanceCriteria": [
+        "examples/task-complete-demo/ directory exists",
+        "Example IMPLEMENTATION_PLAN.md with 1-2 simple tasks",
+        "Demo script runs executor on example plan",
+        "Demo shows task completion in action",
+        "README in examples/ explains the demo"
+      ],
+      "estimatedComplexity": 2,
+      "tags": ["example", "demo", "documentation"]
+    }
+  ],
+  "generatedAt": "2025-01-21T00:00:00.000Z",
+  "totalTasks": 15,
+  "estimatedDuration": "3-5 days"
+}

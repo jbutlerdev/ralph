@@ -10,6 +10,19 @@
       "env": {
         "SEARXNG_MCP_SEARXNG_URL": "https://search.butler.ooo"
       }
+    },
+    "ralph-executor": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/data/jbutler/git/jbutlerdev/ralph/dist/mcp/server.js"
+      ],
+      "env": {
+        "RALPH_SESSION_ID": "",
+        "RALPH_PLAN_PATH": "",
+        "RALPH_PROJECT_ROOT": "",
+        "RALPH_CURRENT_TASK_ID": ""
+      }
     }
   }
 }
