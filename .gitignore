@@ -27,7 +27,6 @@ npm-debug.log*
 .env.local
 run.sh
 
-
 # Playwright test results
 playwright-report/
 test-results/

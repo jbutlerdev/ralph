@@ -265,7 +265,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRes
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [lastMessage, setLastMessage] = useState<WSMessage | null>(null);
   const [lastMessageAt, setLastMessageAt] = useState<Date | null>(null);
-  const [usingFallback, setUsingFallback] = useState(false);
+  // Start with fallback enabled until WebSocket successfully connects
+  const [usingFallback, setUsingFallback] = useState(fallbackToPolling);
 
   // Refs
   const wsRef = useRef<WebSocket | null>(null);
@@ -292,12 +293,16 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRes
 
       // Update fallback mode based on connection state
       if (state === 'connected') {
+        // Disable fallback when WebSocket is connected
         setUsingFallback(false);
-      } else if (fallbackToPolling && reconnectAttempts >= reconnectConfig.maxAttempts) {
-        setUsingFallback(true);
+      } else if (state === 'disconnected' || state === 'error') {
+        // Enable fallback when disconnected (if polling fetcher is available)
+        if (fallbackToPolling && pollingFetcher) {
+          setUsingFallback(true);
+        }
       }
     },
-    [onConnectionChange, fallbackToPolling, reconnectAttempts, reconnectConfig.maxAttempts]
+    [onConnectionChange, fallbackToPolling, pollingFetcher]
   );
 
   /**
@@ -315,6 +320,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRes
    */
   const scheduleReconnect = useCallback(() => {
     if (!reconnectConfig.enabled || reconnectAttempts >= reconnectConfig.maxAttempts) {
+      // Fallback to polling if connection fails
       if (fallbackToPolling && pollingFetcher) {
         setUsingFallback(true);
         updateConnectionState('disconnected');
@@ -393,15 +399,22 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRes
       ws.onerror = (error: Event) => {
         if (!isMountedRef.current) return;
 
-        console.error('WebSocket error:', error);
+        // Suppress WebSocket errors in development - they're expected during rapid mount/unmount
+        if (process.env.NODE_ENV === 'production') {
+          console.error('WebSocket error:', error);
+        }
         onError?.(error);
         updateConnectionState('error');
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (!isMountedRef.current) return;
 
-        console.log('WebSocket disconnected');
+        // Only log close events in production or if not a normal close
+        const wasClean = event.code === 1000;
+        if (!wasClean && process.env.NODE_ENV === 'production') {
+          console.log(`WebSocket closed (code: ${event.code}${event.reason ? `, reason: ${event.reason}` : ''})`);
+        }
         wsRef.current = null;
 
         if (!manualCloseRef.current) {

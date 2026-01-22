@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { TaskItem } from './TaskItem';
 import { TaskDetail } from './TaskDetail';
+import { TaskLogs } from './TaskLogs';
 import { Button } from './ui/button';
 import {
   Select,
@@ -12,14 +13,37 @@ import {
   SelectValue,
 } from './ui/select';
 import type { RalphTask } from '@/lib/plan-utils';
+import type { TaskWithStatus, RuntimeTaskStatus } from './PlanDetail';
 
-export type TaskFilter = 'all' | 'pending' | 'in-progress' | 'completed';
+export type TaskFilter = 'all' | 'pending' | 'in-progress' | 'completed' | 'blocked' | 'failed';
 export type TaskSortBy = 'id' | 'priority' | 'status' | 'dependencies';
 
 export interface TaskListProps {
-  tasks: RalphTask[];
+  tasks: TaskWithStatus[];
   className?: string;
+  onToggleComplete?: (taskId: string) => Promise<void>;
+  togglingTasks?: Set<string>;
+  planId?: string; // Plan ID for fetching logs
 }
+
+// Status priority for sorting
+const statusPriority: Record<RuntimeTaskStatus, number> = {
+  'in-progress': 0,
+  'blocked': 1,
+  'failed': 2,
+  'pending': 3,
+  'completed': 4,
+};
+
+// Status display names
+const statusDisplayNames: Record<TaskFilter, string> = {
+  'all': 'All Tasks',
+  'pending': 'Pending',
+  'in-progress': 'In Progress',
+  'completed': 'Completed',
+  'blocked': 'Blocked',
+  'failed': 'Failed',
+};
 
 /**
  * TaskList component
@@ -30,14 +54,15 @@ export interface TaskListProps {
  * - Configurable display options
  * - Click to view task details in modal
  */
-export function TaskList({ tasks, className }: TaskListProps) {
+export function TaskList({ tasks, className, onToggleComplete, togglingTasks, planId }: TaskListProps) {
   const [filter, setFilter] = useState<TaskFilter>('all');
   const [sortBy, setSortBy] = useState<TaskSortBy>('id');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [showDescriptions, setShowDescriptions] = useState(true);
   const [showAcceptanceCriteria, setShowAcceptanceCriteria] = useState(true);
-  const [selectedTask, setSelectedTask] = useState<RalphTask | null>(null);
+  const [selectedTask, setSelectedTask] = useState<TaskWithStatus | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(false);
 
   // Priority order for sorting (memoized as it's used in useMemo)
   const priorityOrder = useMemo(() => ({ high: 0, medium: 1, low: 2 }), []);
@@ -46,12 +71,9 @@ export function TaskList({ tasks, className }: TaskListProps) {
   const filteredAndSortedTasks = useMemo(() => {
     let filtered = [...tasks];
 
-    // Apply filter
+    // Apply filter based on runtime status
     if (filter !== 'all') {
-      // Since tasks don't have status in RalphTask interface,
-      // we'll simulate this based on task ID or other attributes
-      // In a real implementation, this would come from task status data
-      filtered = filtered;
+      filtered = filtered.filter(task => task.runtimeStatus === filter);
     }
 
     // Apply sort
@@ -69,8 +91,7 @@ export function TaskList({ tasks, className }: TaskListProps) {
           comparison = a.dependencies.length - b.dependencies.length;
           break;
         case 'status':
-          // No status field, sort by ID as fallback
-          comparison = a.id.localeCompare(b.id);
+          comparison = statusPriority[a.runtimeStatus] - statusPriority[b.runtimeStatus];
           break;
         default:
           comparison = 0;
@@ -86,7 +107,7 @@ export function TaskList({ tasks, className }: TaskListProps) {
     setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
   };
 
-  const handleTaskClick = (task: RalphTask) => {
+  const handleTaskClick = (task: TaskWithStatus) => {
     setSelectedTask(task);
     setIsModalOpen(true);
   };
@@ -120,6 +141,8 @@ export function TaskList({ tasks, className }: TaskListProps) {
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="in-progress">In Progress</SelectItem>
               <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="blocked">Blocked</SelectItem>
+              <SelectItem value="failed">Failed</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -185,6 +208,13 @@ export function TaskList({ tasks, className }: TaskListProps) {
               showDescription={showDescriptions}
               showAcceptanceCriteria={showAcceptanceCriteria}
               onClick={() => handleTaskClick(task)}
+              onToggleComplete={onToggleComplete}
+              isToggling={togglingTasks?.has(task.id)}
+              onViewLogs={() => {
+                setSelectedTask(task);
+                setLogsOpen(true);
+              }}
+              planId={planId}
             />
           ))}
         </div>
@@ -198,6 +228,21 @@ export function TaskList({ tasks, className }: TaskListProps) {
           onOpenChange={handleCloseModal}
           planTasks={tasks}
           onNavigateToTask={handleNavigateToTask}
+          taskStatus={selectedTask.runtimeStatus === 'completed' ? 'completed' :
+                     selectedTask.runtimeStatus === 'in-progress' ? 'in_progress' :
+                     selectedTask.runtimeStatus === 'failed' ? 'failed' : 'pending'}
+          planId={planId}
+          onOpenLogs={() => setLogsOpen(true)}
+        />
+      )}
+
+      {/* Task Logs Modal - rendered separately so it persists when TaskDetail closes */}
+      {planId && selectedTask && (
+        <TaskLogs
+          planId={planId}
+          taskId={selectedTask.id}
+          open={logsOpen}
+          onOpenChange={setLogsOpen}
         />
       )}
     </div>

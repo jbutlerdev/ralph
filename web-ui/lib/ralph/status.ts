@@ -272,6 +272,7 @@ function areDependenciesMet(task: RalphTask, completedTaskIds: string[]): boolea
 
 /**
  * Get overall plan status summary
+ * Merges runtime status from .ralph/sessions with plan file status (Implemented/Verified)
  */
 export async function getPlanStatusSummary(
   plan: RalphPlan,
@@ -297,8 +298,18 @@ export async function getPlanStatusSummary(
     percentage: 0,
   };
 
-  for (const status of Array.from(statusMap.values())) {
-    switch (status.status) {
+  for (const task of plan.tasks) {
+    // First check if task is marked as completed in the plan file
+    if (task.status === 'Implemented' || task.status === 'Verified') {
+      summary.completed++;
+      continue;
+    }
+
+    // Otherwise use runtime status from sessions
+    const runtimeStatus = statusMap.get(task.id);
+    const status = runtimeStatus?.status || 'pending';
+
+    switch (status) {
       case 'completed':
         summary.completed++;
         break;

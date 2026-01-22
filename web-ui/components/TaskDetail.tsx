@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -20,6 +21,7 @@ import {
   ArrowRight,
   Check,
   Network,
+  Terminal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { RalphTask } from '@/lib/plan-utils';
@@ -32,6 +34,8 @@ export interface TaskDetailProps {
   onNavigateToTask?: (taskId: string) => void; // Callback for task navigation
   taskStatus?: 'pending' | 'in_progress' | 'completed' | 'failed'; // Optional task status
   completedCriteria?: string[]; // Optional list of completed acceptance criteria IDs
+  planId?: string; // Plan ID for fetching logs
+  onOpenLogs?: () => void; // Callback to open logs modal
 }
 
 /**
@@ -55,6 +59,8 @@ export function TaskDetail({
   onNavigateToTask,
   taskStatus = 'pending',
   completedCriteria = [],
+  planId,
+  onOpenLogs,
 }: TaskDetailProps) {
   const getPriorityColor = (priority: RalphTask['priority']) => {
     switch (priority) {
@@ -147,7 +153,7 @@ export function TaskDetail({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl sm:max-w-3xl max-h-[85vh] sm:max-h-[90vh] overflow-y-auto" aria-describedby="task-description">
+      <DialogContent className="max-w-2xl sm:max-w-3xl max-h-[85vh] sm:max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
             <div className="flex-1 min-w-0">
@@ -481,6 +487,23 @@ export function TaskDetail({
               </a>
             </section>
           )}
+
+          {/* View Logs Button */}
+          <section>
+            <button
+              onClick={() => onOpenLogs?.()}
+              disabled={!planId || !onOpenLogs}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-input bg-background hover:bg-accent hover:border-accent transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+            >
+              <Terminal className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+              <span className="text-sm font-medium text-foreground">
+                {taskStatus === 'completed' || taskStatus === 'in_progress'
+                  ? 'View Execution Logs'
+                  : 'View Logs (when available)'
+                }
+              </span>
+            </button>
+          </section>
 
           {/* Empty state for dependencies */}
           {task.dependencies.length === 0 && dependentTasks.length === 0 && (

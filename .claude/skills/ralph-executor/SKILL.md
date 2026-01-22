@@ -1,62 +1,60 @@
 ---
 name: ralph-executor
-description: Execute Ralph Wiggum implementation plans by running the ralph-executor CLI tool or server API. This tool autonomously executes tasks from an IMPLEMENTATION_PLAN.md by spawning new Claude Code sessions for each task. Use when: running an implementation plan, resuming a paused session, or executing tasks from IMPLEMENTATION_PLAN.md.
+description: Execute Ralph Wiggum implementation plans via the Ralph Executor Server API. This skill communicates with a running Ralph server to execute tasks from an IMPLEMENTATION_PLAN.md. IMPORTANT: The server must already be running before using this skill.
 allowed-tools: Bash, Read
 user-invocable: true
 ---
 
 # Ralph Executor
 
-## CRITICAL: DO NOT IMPLEMENT CODE YOURSELF
+## CRITICAL: SERVER MUST BE RUNNING
 
-When this skill is invoked, you must **EXECUTE the ralph-executor CLI tool or Server API**, NOT implement the tasks yourself. The CLI tool will handle spawning new Claude Code sessions for each task.
+This skill communicates with the Ralph Executor Server via HTTP API.
 
-## Two Ways to Execute
+**IMPORTANT: The Ralph Executor Server MUST be running BEFORE using this skill.**
+- This skill does NOT start the server
+- The user must start the server themselves in a separate terminal
 
-### 1. CLI Mode (Direct Execution)
-
-Use the Bash tool to run the `ralph-executor` command:
-
-```bash
-# Basic usage - run plan in current directory
-ralph-executor run
-
-# Run specific plan
-ralph-executor run plans/web-ui/IMPLEMENTATION_PLAN.md
-
-# With options
-ralph-executor run --no-commit --auto-test --verbose
-```
-
-### 2. Server Mode (HTTP API)
-
-**Start the server:**
-
+**To start the server (run this in a separate terminal):**
 ```bash
 # Start server (default port 3001)
-ralph-executor server
+ralph server
 
-# Start server with custom port and directory
-ralph-executor server --port 4000 --directory /path/to/project
-
-# Start server with auto-commit and auto-test
-ralph-executor server --auto-commit --auto-test
+# Or with custom options
+ralph server --port 3001 --directory /path/to/project
 ```
 
-**Post API requests to the server:**
+## CRITICAL: DO NOT IMPLEMENT CODE YOURSELF
 
-```bash
-# Start execution
-curl -X POST http://localhost:3001/execute \
-  -H "Content-Type: application/json" \
-  -d '{"plan": "plans/web-ui/IMPLEMENTATION_PLAN.md"}'
+When this skill is invoked, you must **CALL THE SERVER API ENDPOINTS**, NOT implement tasks yourself. The server will handle spawning new Claude Code sessions for each task.
 
-# Check execution status
-curl http://localhost:3001/status/session-1738000000000
+## How This Skill Works
 
-# List active sessions
-curl http://localhost:3001/sessions
-```
+1. **User starts server** in separate terminal: `ralph server`
+2. **User invokes skill** with plan path: `/ralph-executor plans/web-ui/IMPLEMENTATION_PLAN.md`
+3. **Skill connects to server** and posts `/execute` request
+4. **Server auto-registers the plan** (if not already registered)
+5. **Server spawns Claude sessions** to execute each task
+6. **Skill polls for status** via `/status/:sessionId` endpoint
+7. **Skill reports results** when execution completes
+
+## IMPORTANT: Always Include the Plan Path
+
+When invoking this skill, you **MUST** specify the path to the implementation plan:
+
+**✅ CORRECT:**
+- `/ralph-executor plans/web-ui/IMPLEMENTATION_PLAN.md`
+- `/ralph-executor @plans/web-ui/IMPLEMENTATION_PLAN.md`
+
+**❌ WRONG:**
+- `/ralph-executor web-ui` (This will fail with "Plan not found in registry")
+- `/ralph-executor` (No plan specified)
+
+The server will **auto-register** the plan if it's not already in the registry, but only when you provide a file path that:
+- Starts with `plans/` (e.g., `plans/web-ui/IMPLEMENTATION_PLAN.md`)
+- Is an absolute path
+- Contains a path separator (e.g., `web-ui/IMPLEMENTATION_PLAN.md`)
+- Ends with `.md`
 
 ## Server API Endpoints
 
@@ -174,7 +172,7 @@ List all active execution sessions.
       "status": "running"
     },
     {
-      "sessionId": "session-1737000000000",
+      "sessionId": "session-1738000000000",
       "status": "completed"
     }
   ]
@@ -197,44 +195,16 @@ Health check endpoint.
 }
 ```
 
-## When to Use CLI vs Server
-
-**Use CLI Mode when:**
-- Running execution directly from terminal
-- Quick one-off execution
-- Testing and debugging
-- User explicitly invokes `/ralph-executor` command
-
-**Use Server Mode when:**
-- Invoking from within Claude Code (to avoid nested sessions)
-- Need to monitor execution progress via HTTP
-- Multiple execution sessions needed
-- Integrating with other tools/services
-
-## Server CLI Options
-
-```
--p, --port <number>       Server port (default: 3001)
--h, --host <string>       Server host (default: 0.0.0.0)
--d, --directory <path>    Project root directory (default: current directory)
---auto-commit             Enable automatic git commits
---auto-test               Run tests after task completion
-```
-
-## When to Use
-
-- User explicitly invokes `/ralph-executor` command
-- User provides an IMPLEMENTATION_PLAN.md file
-- User wants to run autonomous execution of tasks
-- User wants to resume a paused execution session
-
 ## Your Responsibilities
 
-1. **Read the plan file** to understand what will be executed
-2. **Start the server** (if not already running) using `ralph-executor server`
-3. **Post API request** to `/execute` endpoint to start execution
-4. **Monitor status** by polling `/status/:sessionId`
-5. **Report results** to the user
+1. **Check if server is running** via GET /health
+2. **If server not running**, inform user they need to start it themselves:
+   - "The Ralph Executor Server is not running. Please start it in a separate terminal with: `ralph server`"
+   - DO NOT attempt to start the server yourself
+3. **Read the plan file** to understand what will be executed
+4. **Post API request** to `/execute` endpoint to start execution
+5. **Monitor status** by polling `/status/:sessionId`
+6. **Report results** to the user
 
 ## What NOT to Do
 
@@ -242,112 +212,92 @@ Health check endpoint.
 - ❌ DO NOT write code for the tasks in the plan
 - ❌ DO NOT use Write/Edit tools to complete tasks
 - ❌ DO NOT create files or make changes directly
+- ❌ DO NOT try to start the server - this is the user's responsibility
 
-## Example Workflow (Server Mode)
+## Example Workflow
 
-```bash
-# User invokes: /ralph-executor @plans/web-ui/IMPLEMENTATION_PLAN.md
+```
+User: /ralph-executor plans/web-ui/IMPLEMENTATION_PLAN.md
 
-# Step 1: Read the plan to understand it
-cat plans/web-ui/IMPLEMENTATION_PLAN.md
+Assistant: I'll execute the implementation plan using the Ralph Executor server.
 
-# Step 2: Start the server (if not already running)
-# In a separate terminal or background:
-ralph-executor server --directory /data/jbutler/git/jbutlerdev/ralph
+[Check server health...]
+curl -s http://localhost:3001/health
 
-# Step 3: Trigger execution via API
+[Read plan to understand it...]
+Plan: Ralph Web UI
+Total tasks: 12
+Estimated duration: 5-7 days
+
+[Trigger execution via API with full plan path]
 curl -X POST http://localhost:3001/execute \
   -H "Content-Type: application/json" \
   -d '{"plan": "plans/web-ui/IMPLEMENTATION_PLAN.md"}'
 
-# Response: {"sessionId": "session-1738000000000", ...}
+Response: {"sessionId": "session-1738000000000", ...}
 
-# Step 4: Poll for status
+[Monitor progress by polling status...]
 while true; do
   curl -s http://localhost:3001/status/session-1738000000000 | jq .
   sleep 5
 done
 
-# Step 5: Report final status to user when complete
+[Report final status to user when complete]
 ```
 
-## CLI Options (for run command)
-
-```
--p, --plan <path>         Path to implementation plan (default: ./IMPLEMENTATION_PLAN.md)
--d, --directory <path>    Project root directory (default: current directory)
--r, --resume              Resume from previous session
---no-commit               Disable automatic git commits
---auto-test               Run tests after each task completion
---test-command <cmd>      Test command to run (default: npm run test:run)
---dry-run                 Dry run - show what would be executed without actually running
--v, --verbose             Verbose output
---max-retries <n>         Maximum retry attempts for failed tasks (default: 3)
---max-parallel <n>        Maximum parallel tasks (default: 1)
---model <name>            Claude model to use (default: claude-sonnet-4-5)
-```
-
-## Status Commands
-
-```bash
-# List all available plans
-ralph-executor list
-
-# Show execution status
-ralph-executor status
-
-# Show status for specific plan
-ralph-executor status plans/web-ui/IMPLEMENTATION_PLAN.md
-```
-
-## Understanding the Output
-
-The CLI/Server will output:
-- Plan validation results
-- Task execution progress
-- Completion status for each task
-- Acceptance criteria verification
-- Git commit information (if auto-commit enabled)
-- Final execution summary
+**Key Point:** Notice the full path `plans/web-ui/IMPLEMENTATION_PLAN.md` is used. Using just `web-ui` would fail with "Plan not found in registry" unless the plan was manually registered beforehand.
 
 ## Error Handling
 
-If execution fails:
-1. Check the error message
-2. Verify the plan file exists and is valid
-3. Check if dependencies are installed
-4. Suggest running with `--verbose` for more details
-5. Suggest running with `--dry-run` to preview execution
+### Server Not Running
 
-## Example Session
+If GET /health fails or returns connection refused:
 
 ```
-User: /ralph-executor @plans/web-ui/IMPLEMENTATION_PLAN.md
+The Ralph Executor Server is not running. Please start it in a separate terminal:
 
-Assistant: I'll execute the implementation plan using the Ralph Executor server.
+  ralph server --port 3001
 
-[Reading plan...]
-Plan: Ralph Web UI
-Total tasks: 12
-Estimated duration: 5-7 days
+After starting the server, invoke the ralph-executor skill again.
+```
 
-[Starting server and posting execution request...]
-Server running at http://localhost:3001
-POST /execute -> {"sessionId": "session-1738000000000", ...}
+DO NOT attempt to start the server yourself.
 
-[Monitoring progress...]
-=== Executing task-001: Initialize Web UI project with Next.js ===
-Priority: high
-Complexity: 2
+### Execution Fails
 
-[The server spawns new Claude sessions for each task...]
+If execution fails:
+1. Check the error message
+2. **If "Plan not found in registry"**: Make sure you specified the full path (e.g., `plans/web-ui/IMPLEMENTATION_PLAN.md`), not just a plan ID (e.g., `web-ui`)
+3. Verify the plan file exists and is valid
+4. Suggest the user checks server logs
+5. Recommend retrying after fixing issues
+
+**Common error - "Plan not found in registry":**
+This error occurs when you pass a bare plan ID (like `web-ui`) that isn't registered. Always use the full file path:
+
+```
+❌ POST /execute {"plan": "web-ui"}           # Fails - not in registry
+✅ POST /execute {"plan": "plans/web-ui/IMPLEMENTATION_PLAN.md"}  # Works - auto-registers
 ```
 
 ## Important Notes
 
-- The `ralph-executor` command is located at: `.claude/skills/ralph-executor/dist/cli.js`
-- Make sure the skill has been built (`npm run build` in the skill directory)
-- The CLI requires Node.js and the `claude` command to be available
+- The Ralph server is typically started via: `ralph server` or `npm run server`
+- Server runs on http://localhost:3001 by default
 - Session state is stored in `.ralph/sessions/`
-- Each task runs in an isolated Claude Code session
-- Server mode is recommended when invoking from within Claude Code to avoid nested sessions
+- Each task runs in an isolated Claude Code session (spawned by the server)
+- This skill only communicates with the server via HTTP API
+
+## What This Skill Does
+
+- ✅ Connects to Ralph Executor Server via HTTP API
+- ✅ Submits plans for execution via POST /execute
+- ✅ Polls for execution status via GET /status/:sessionId
+- ✅ Reports results to the user
+
+## What This Skill Does NOT Do
+
+- ❌ Start the server
+- ❌ Run the server in the background
+- ❌ Implement tasks from the plan
+- ❌ Write code or make file changes

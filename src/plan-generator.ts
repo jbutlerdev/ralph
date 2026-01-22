@@ -4,6 +4,7 @@
  * Utilities for generating, parsing, and validating Ralph implementation plans.
  */
 
+import * as path from 'path';
 import type { RalphPlan, RalphTask, TaskStatus } from './types/index.js';
 
 const VALID_STATUSES: TaskStatus[] = ['To Do', 'In Progress', 'Implemented', 'Needs Re-Work', 'Verified'];
@@ -57,12 +58,13 @@ export function planToMarkdown(plan: RalphPlan): string {
  * Converts a Markdown implementation plan to a RalphPlan object
  * Parses the structured format defined in CLAUDE.md
  */
-export function planFromMarkdown(markdown: string): RalphPlan {
+export function planFromMarkdown(markdown: string, projectDir?: string): RalphPlan {
   const tasks: RalphTask[] = [];
   const lines = markdown.split('\n');
   let currentTask: Partial<RalphTask> | null = null;
+  let projectName: string | undefined;
 
-  // Parse implementation plan section
+  // Parse header section (before Tasks)
   let inTasksSection = false;
 
   for (let i = 0; i < lines.length; i++) {
@@ -72,6 +74,15 @@ export function planFromMarkdown(markdown: string): RalphPlan {
     if (line.toLowerCase() === '## tasks') {
       inTasksSection = true;
       continue;
+    }
+
+    // Parse **Project:** field from header section
+    if (!inTasksSection) {
+      const projectMatch = line.match(/^\*\*Project:\*\*\s*(.+)$/i);
+      if (projectMatch) {
+        projectName = projectMatch[1].trim();
+        continue;
+      }
     }
 
     if (!inTasksSection) continue;
@@ -175,8 +186,21 @@ export function planFromMarkdown(markdown: string): RalphPlan {
     }
   });
 
+  // Determine project name:
+  // 1. Use parsed **Project:** field from markdown
+  // 2. Otherwise derive from directory name if provided
+  // 3. Otherwise default to 'Project'
+  let finalProjectName = projectName;
+  if (!finalProjectName && projectDir) {
+    // Extract directory name from path
+    finalProjectName = path.basename(projectDir);
+  }
+  if (!finalProjectName) {
+    finalProjectName = 'Project';
+  }
+
   return {
-    projectName: 'Project',
+    projectName: finalProjectName,
     description: markdown.match(/## Overview\s*\n\s*(.+)/)?.[1] || '',
     overview: '',
     tasks,
@@ -418,10 +442,13 @@ export function getTaskById(plan: RalphPlan, taskId: string): RalphTask | undefi
 /**
  * Load a plan from a file path
  */
-export async function loadPlan(planPath: string): Promise<RalphPlan> {
+export async function loadPlan(planPath: string, projectRoot?: string): Promise<RalphPlan> {
   const fs = await import('fs/promises');
+  const path = await import('path');
   const content = await fs.readFile(planPath, 'utf-8');
-  return planFromMarkdown(content);
+  // Extract directory name from plan path as default project name
+  const projectDir = projectRoot || path.dirname(planPath);
+  return planFromMarkdown(content, projectDir);
 }
 
 /**

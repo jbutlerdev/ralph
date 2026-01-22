@@ -168,7 +168,7 @@ export function usePolling<T>(
 
   // State
   const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -218,7 +218,10 @@ export function usePolling<T>(
       if (isPaused && !manualRefresh) return;
 
       // Skip if tab is not visible (unless it's a manual refresh)
-      if (pollOnlyWhenVisible && !isDocumentVisible() && !manualRefresh) {
+      // Note: During SSR, document is undefined, so isDocumentVisible returns false
+      // We should always fetch on the first call (manualRefresh will be false)
+      // The tab visibility check applies to subsequent polls
+      if (pollOnlyWhenVisible && !isDocumentVisible() && !manualRefresh && lastFetchTimeRef.current > 0) {
         return;
       }
 
@@ -340,7 +343,9 @@ export function usePolling<T>(
 
   // Main polling effect
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      return;
+    }
 
     // Initial fetch
     fetchData();
@@ -385,6 +390,7 @@ export function usePolling<T>(
 
   // Cleanup on unmount
   useEffect(() => {
+    isMountedRef.current = true; // Set to true on mount
     return () => {
       isMountedRef.current = false;
       if (pollTimeoutRef.current) {

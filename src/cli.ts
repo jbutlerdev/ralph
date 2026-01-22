@@ -13,6 +13,7 @@
 import { program } from 'commander';
 import { RalphExecutor, runRalphExecution, RalphExecutorOptions } from './executor.js';
 import { loadPlan, listAllPlans, planFromMarkdown, validateRalphPlan, sortTasksByDependencies } from './plan-generator.js';
+import { initRegistry } from './registry.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { startServer, ServerConfig } from './server.js';
@@ -61,7 +62,8 @@ async function main() {
       try {
         await executePlan(planArg, options);
       } catch (error) {
-        console.error(`Error: ${error}`);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`Error: ${errorMsg}`);
         process.exit(1);
       }
     });
@@ -73,7 +75,8 @@ async function main() {
       try {
         await listPlans();
       } catch (error) {
-        console.error(`Error: ${error}`);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`Error: ${errorMsg}`);
         process.exit(1);
       }
     });
@@ -86,17 +89,18 @@ async function main() {
       try {
         await showStatus(planArg, options);
       } catch (error) {
-        console.error(`Error: ${error}`);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`Error: ${errorMsg}`);
         process.exit(1);
       }
     });
 
   program
     .command('server')
-    .description('Start the Ralph Executor HTTP API server')
+    .description('Start Ralph Executor HTTP API server')
     .option('-p, --port <number>', 'Server port (default: 3001)', '3001')
     .option('-h, --host <string>', 'Server host (default: 0.0.0.0)', '0.0.0.0')
-    .option('-d, --directory <path>', 'Project root directory (default: current directory)')
+    .option('-d, --directory <path>', 'Fallback project root for absolute paths')
     .option('--no-commit', 'Disable automatic git commits')
     .option('--auto-test', 'Run tests after task completion')
     .option('--require-acceptance-criteria', 'Fail tasks when acceptance criteria are not verified')
@@ -105,14 +109,159 @@ async function main() {
         const config: ServerConfig = {
           port: Number(options.port) || 3001,
           host: options.host || '0.0.0.0',
-          projectRoot: path.resolve(options.directory || process.cwd()),
+          projectRoot: options.directory ? path.resolve(options.directory) : undefined,
           autoCommit: !options['no-commit'],
           autoTest: options['auto-test'] || false,
           requireAcceptanceCriteria: options['require-acceptance-criteria'] || false,
         };
         await startServer(config);
       } catch (error) {
-        console.error(`Error: ${error}`);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`Error: ${errorMsg}`);
+        process.exit(1);
+      }
+    });
+
+  // Registry commands
+  program
+    .command('register')
+    .description('Register a plan in the plan registry')
+    .argument('<planId>', 'Unique identifier for this plan')
+    .argument('<planPath>', 'Path to the plan file')
+    .option('-d, --directory <path>', 'Project root directory', process.cwd())
+    .option('-f, --force', 'Overwrite existing registration')
+    .action(async (planId: string, planPath: string, options: { directory?: string; force?: boolean }) => {
+      try {
+        const registry = await initRegistry();
+        const projectRoot = path.resolve(options.directory || process.cwd());
+
+        const registeredPlan = await registry.registerPlan(
+          planId,
+          projectRoot,
+          planPath,
+          { overwrite: options.force }
+        );
+
+        console.log(`Plan registered successfully:`);
+        console.log(`  ID: ${registeredPlan.planId}`);
+        console.log(`  Project root: ${registeredPlan.projectRoot}`);
+        console.log(`  Plan path: ${registeredPlan.planPath}`);
+        if (registeredPlan.title) {
+          console.log(`  Title: ${registeredPlan.title}`);
+        }
+        if (registeredPlan.totalTasks) {
+          console.log(`  Tasks: ${registeredPlan.totalTasks}`);
+        }
+      } catch (error) {
+        console.error(`Error registering plan: ${error}`);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command('unregister')
+    .description('Unregister a plan from the plan registry')
+    .argument('<planId>', 'Plan ID to unregister')
+    .action(async (planId: string) => {
+      try {
+        const registry = await initRegistry();
+        await registry.unregisterPlan(planId);
+        console.log(`Plan ${planId} unregistered successfully`);
+      } catch (error) {
+        console.error(`Error unregistering plan: ${error}`);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command('registry-list')
+    .description('List all registered plans')
+    .action(async () => {
+      try {
+        const registry = await initRegistry();
+        const plans = await registry.listPlans();
+
+        if (plans.length === 0) {
+          console.log('No plans registered.');
+          return;
+        }
+
+        console.log('Registered plans:\n');
+        for (const plan of plans) {
+          console.log(`  ${plan.planId}:`);
+          console.log(`    Title: ${plan.title || 'N/A'}`);
+          console.log(`    Project: ${plan.projectRoot}`);
+          console.log(`    Plan: ${plan.planPath}`);
+          if (plan.totalTasks) {
+            console.log(`    Tasks: ${plan.totalTasks}`);
+          }
+          console.log(`    Registered: ${plan.registeredAt}`);
+          if (plan.lastAccessed) {
+            console.log(`    Last accessed: ${plan.lastAccessed}`);
+          }
+          console.log();
+        }
+      } catch (error) {
+        console.error(`Error listing plans: ${error}`);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command('registry-stats')
+    .description('Show registry statistics')
+    .action(async () => {
+      try {
+        const registry = await initRegistry();
+        const stats = await registry.getStats();
+
+        console.log('Registry statistics:');
+        console.log(`  Total plans: ${stats.totalPlans}`);
+        console.log(`  Total projects: ${stats.totalProjects}`);
+        console.log(`  Registry file: ${stats.registryPath}`);
+      } catch (error) {
+        console.error(`Error getting stats: ${error}`);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command('registry-clear')
+    .description('Clear all plans from the registry')
+    .option('-y, --yes', 'Skip confirmation')
+    .action(async (options: { yes?: boolean }) => {
+      try {
+        const registry = await initRegistry();
+        const plans = await registry.listPlans();
+
+        if (plans.length === 0) {
+          console.log('Registry is already empty.');
+          return;
+        }
+
+        if (!options.yes) {
+          console.log(`This will remove ${plans.length} plan(s) from the registry.`);
+          const readline = await import('readline');
+          const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+          });
+
+          const answer = await new Promise<string>((resolve) => {
+            rl.question('Are you sure? (yes/no): ', resolve);
+          });
+          rl.close();
+
+          if (answer.toLowerCase() !== 'yes') {
+            console.log('Aborted.');
+            return;
+          }
+        }
+
+        await registry.clear();
+        console.log('Registry cleared successfully');
+      } catch (error) {
+        console.error(`Error clearing registry: ${error}`);
         process.exit(1);
       }
     });
@@ -156,7 +305,7 @@ async function executePlan(planArg: string | undefined, options: CliOptions) {
   console.log(`Loading plan: ${planPath}`);
   const planContent = await fs.readFile(planPath, 'utf-8');
 
-  const plan = planFromMarkdown(planContent);
+  const plan = planFromMarkdown(planContent, projectRoot);
 
   const validation = validateRalphPlan(plan);
   if (!validation.valid) {

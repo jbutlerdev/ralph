@@ -271,3 +271,88 @@ Summary: Changed N file(s):
 - [README.md](./README.md) - Project overview and getting started
 - [ralph-wiggum-technique.md](./ralph-wiggum-technique.md) - Methodology deep dive
 - [skills/ralph-plan-generator.md](./skills/ralph-plan-generator.md) - Plan generator documentation
+
+## Web UI Development Notes
+
+### Important: Runtime Status Integration
+
+When making changes to the web-ui code, it's critical to understand the dual-layer status system:
+
+1. **Plan File Status** (`TaskStatus` type in plan-utils.ts)
+   - Static status from markdown: "To Do" | "In Progress" | "Implemented" | "Needs Re-Work" | "Verified"
+   - Used for manual plan editing and review
+   - Located in `IMPLEMENTATION_PLAN.md` under `**Status:**` field
+
+2. **Runtime Status** (`TaskStatus` type in lib/ralph/status.ts)
+   - Dynamic status from execution: "pending" | "in-progress" | "completed" | "blocked" | "failed"
+   - Read from `.ralph/sessions/` directory and git commit history
+   - Used for dashboard and progress tracking
+
+### API Layer Changes
+
+**Always update BOTH API endpoints when modifying status behavior:**
+
+1. `/api/plans` (plural) - Dashboard/plan list endpoint
+   - Returns summary for all plans
+   - Uses `getPlanStatusSummary(plan, projectRoot)`
+   - Must include `progress`, `completedTasks`, `inProgressTasks`, `failedTasks`
+
+2. `/api/plans/[id]` (singular) - Plan detail endpoint
+   - Returns full plan with task-level statuses
+   - Uses `getTaskStatus(plan, projectRoot)` + `getPlanStatusSummary(plan, projectRoot)`
+   - Must attach `runtimeStatus` to each task
+   - Must include `runtimeStatus` summary object
+
+### Component Changes
+
+When updating UI components for status:
+
+1. **PlanCard** (`components/PlanCard.tsx`)
+   - Accept `progress?: number` prop for pre-calculated percentage
+   - Fall back to calculating from `completedTasks / totalTasks` if not provided
+
+2. **PlanList** (`components/PlanList.tsx`)
+   - Pass `progress` from API to PlanCard
+   - Update `PlanData` interface to include `progress?: number`
+
+3. **PlanDetail** (`components/PlanDetail.tsx`)
+   - Use `plan.runtimeStatus?.progress` instead of hardcoded values
+   - Handle null/undefined states gracefully
+
+4. **TaskList** & **TaskItem** (`components/TaskList.tsx`, `components/TaskItem.tsx`)
+   - Use `runtimeStatus` from task objects
+   - Display appropriate icons per status state
+
+### Development Workflow
+
+1. **Server-side code (API routes, lib/ralph/status.ts):**
+   - Uses `lib/ralph/status.ts` (no `src/` prefix)
+   - Can access file system directly
+   - Imports use `../../../../lib/ralph/status` relative to `app/api/` directory
+
+2. **Client-side code (React components):**
+   - Uses `src/lib/ralph/status.ts` for types
+   - Cannot import server-side functions (file system access not allowed)
+   - Receives pre-calculated status from API
+
+3. **Hot reload behavior:**
+   - `npm run dev` auto-reloads on file changes
+   - If you see 404s for `.js`/`.css` resources, restart the server
+   - API changes require rebuild to pick up new static assets
+
+### Common Pitfalls
+
+1. **Status not updating:**
+   - Check if `lib/ralph/status.ts` exports are being used correctly
+   - Verify `getPlanStatusSummary()` and `getTaskStatus()` are called
+   - Ensure `.ralph/sessions/` directory exists with valid session data
+
+2. **Progress showing 0%:**
+   - API routes might be returning hardcoded zeros
+   - Check lines with `completedTasks: 0` in `app/api/plans/route.ts`
+   - Verify `statusSummary.completed` is being returned, not hardcoded
+
+3. **404 errors after changes:**
+   - Next.js dev server needs to rebuild static assets
+   - Kill and restart `npm run dev` if auto-reload fails
+   - Check build output for TypeScript errors before assuming it compiled

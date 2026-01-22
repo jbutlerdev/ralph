@@ -4,6 +4,7 @@
  * Utilities for parsing and manipulating Ralph implementation plans.
  */
 
+import * as path from 'node:path';
 import type { RalphPlan, RalphTask, TaskStatus } from './types.js';
 
 const VALID_STATUSES: TaskStatus[] = ['To Do', 'In Progress', 'Implemented', 'Needs Re-Work', 'Verified'];
@@ -13,10 +14,11 @@ const DEFAULT_STATUS: TaskStatus = 'To Do';
  * Converts a Markdown implementation plan to a RalphPlan object
  * Parses the structured format defined in CLAUDE.md
  */
-export function planFromMarkdown(markdown: string): RalphPlan {
+export function planFromMarkdown(markdown: string, projectDir?: string): RalphPlan {
   const tasks: RalphTask[] = [];
   const lines = markdown.split('\n');
   let currentTask: Partial<RalphTask> | null = null;
+  let projectName: string | undefined;
 
   // Parse implementation plan section
   let inTasksSection = false;
@@ -28,6 +30,15 @@ export function planFromMarkdown(markdown: string): RalphPlan {
     if (line.toLowerCase() === '## tasks') {
       inTasksSection = true;
       continue;
+    }
+
+    // Parse **Project:** field from header section
+    if (!inTasksSection) {
+      const projectMatch = line.match(/^\*\*Project:\*\*\s*(.+)$/i);
+      if (projectMatch) {
+        projectName = projectMatch[1].trim();
+        continue;
+      }
     }
 
     if (!inTasksSection) continue;
@@ -135,8 +146,21 @@ export function planFromMarkdown(markdown: string): RalphPlan {
     }
   });
 
+  // Determine project name:
+  // 1. Use parsed **Project:** field from markdown
+  // 2. Otherwise derive from directory name if provided
+  // 3. Otherwise default to 'Project'
+  let finalProjectName = projectName;
+  if (!finalProjectName && projectDir) {
+    // Extract directory name from path
+    finalProjectName = path.basename(projectDir);
+  }
+  if (!finalProjectName) {
+    finalProjectName = 'Project';
+  }
+
   return {
-    projectName: 'Project',
+    projectName: finalProjectName,
     description: markdown.match(/## Overview\s*\n\s*(.+)/)?.[1] || '',
     overview: '',
     tasks,
@@ -342,4 +366,71 @@ export function filterByTag(plan: RalphPlan, tag: string): RalphTask[] {
  */
 export function getTaskById(plan: RalphPlan, taskId: string): RalphTask | undefined {
   return plan.tasks.find(t => t.id === taskId);
+}
+
+/**
+ * Converts a RalphPlan object to markdown format
+ * Opposite of planFromMarkdown
+ */
+export function planToMarkdown(plan: RalphPlan): string {
+  const lines: string[] = [];
+
+  // Header
+  lines.push(`# Implementation Plan`);
+  lines.push('');
+
+  // Overview
+  lines.push(`## Overview`);
+  lines.push(plan.description || plan.overview || 'Project description');
+  if (plan.projectName) {
+    lines.push(`**Project:** ${plan.projectName}`);
+  }
+  lines.push('');
+
+  // Tasks
+  lines.push(`## Tasks`);
+  lines.push('');
+
+  plan.tasks.forEach((task) => {
+    // Task header
+    lines.push(`### ${task.title}`);
+    lines.push('');
+
+    // Task fields
+    lines.push(`**ID:** ${task.id}`);
+    lines.push(`**Status:** ${task.status || 'To Do'}`);
+    lines.push(`**Priority:** ${task.priority}`);
+
+    if (task.dependencies.length > 0) {
+      lines.push(`**Dependencies:** ${task.dependencies.join(', ')}`);
+    }
+
+    lines.push(''); // empty line before description
+
+    // Description
+    lines.push(`**Description:**`);
+    if (task.description) {
+      lines.push(task.description);
+    } else {
+      lines.push('No description provided.');
+    }
+    lines.push(''); // empty line before acceptance criteria
+
+    // Acceptance Criteria
+    lines.push(`**Acceptance Criteria:**`);
+    if (task.acceptanceCriteria.length > 0) {
+      task.acceptanceCriteria.forEach((criterion) => {
+        lines.push(`- [ ] ${criterion}`);
+      });
+    } else {
+      lines.push(`- [ ] No acceptance criteria defined`);
+    }
+    lines.push('');
+
+    // Separator between tasks
+    lines.push('---');
+    lines.push('');
+  });
+
+  return lines.join('\n');
 }

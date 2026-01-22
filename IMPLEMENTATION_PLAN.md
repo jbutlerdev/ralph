@@ -3,6 +3,8 @@
 ## Overview
 Ralph - A server-based AI development orchestrator powered by the "Ralph Wiggum technique".
 
+**Project:** Ralph
+
 ## Tasks
 
 ### Task 1: Initialize TypeScript project

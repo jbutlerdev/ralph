@@ -1,12 +1,12 @@
 'use client';
 
+import { useState, useCallback, useEffect } from 'react';
 import { PlanCard } from './PlanCard';
 import { Button } from './ui/button';
-import { Loader2, AlertCircle, FolderOpen, RefreshCw, Clock, EyeOff } from 'lucide-react';
+import { Loader2, AlertCircle, FolderOpen, RefreshCw, Clock, WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { usePolling, type UsePollingResult } from '@/lib/ralph/usePolling';
-import { useWebSocket } from '@/lib/ralph/useWebSocket';
 import { ConnectionStatus } from './ConnectionStatus';
+import { useWebSocket } from '@/lib/ralph/useWebSocket';
 
 export interface PlanData {
   id: string;
@@ -16,7 +16,13 @@ export interface PlanData {
   totalTasks?: number;
   completedTasks?: number;
   inProgressTasks?: number;
+  blockedTasks?: number;
+  pendingTasks?: number;
   failedTasks?: number;
+  progress?: number; // Completion percentage
+  projectRoot?: string; // Project root directory
+  registeredAt?: string;
+  lastAccessed?: string;
 }
 
 export interface PlansApiResponse {
@@ -40,41 +46,87 @@ export interface PlansApiResponse {
  * - Manual refresh button with loading state
  * - Last updated timestamp
  * - Stale data indicator
- * - Pause/Resume polling (when using fallback)
  */
 export function PlanList() {
-  // Use polling directly to get plans data
-  const {
-    data: response,
-    loading,
-    error,
-    lastUpdated,
-    isStale,
-    isPaused,
-    refresh,
-    togglePause,
-  } = usePolling<PlansApiResponse>({
-    fetcher: async () => {
-      const res = await fetch('/api/plans');
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
-      return res.json();
+  const [response, setResponse] = useState<PlansApiResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  // Fetch function for plans
+  const fetchPlans = useCallback(async (): Promise<PlansApiResponse> => {
+    const res = await fetch('/api/plans');
+    if (!res.ok) {
+      throw new Error(`HTTP error! status: ${res.status}`);
+    }
+    return res.json();
+  }, []);
+
+  // Handle manual refresh
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchPlans();
+      setResponse(data);
+      setLastUpdated(new Date());
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to fetch plans'));
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchPlans]);
+
+  // Set up WebSocket for real-time updates with polling fallback
+  const { connectionState, usingFallback, polling } = useWebSocket({
+    enabled: true,
+    fallbackToPolling: true,
+    pollingInterval: 5000,
+    pollingFetcher: fetchPlans,
+    reconnect: {
+      enabled: true,
+      // Fall back to polling after 3 failed reconnection attempts
+      // This prevents endless "connecting" state in development
+      maxAttempts: 3,
+      initialDelay: 1000,
+      maxDelay: 5000,
+      exponentialBackoff: true,
     },
-    interval: parseInt(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS || '5000', 10),
-    pollOnlyWhenVisible: true,
-    staleTime: 60000,
+    onMessage: (message) => {
+      console.log('WebSocket message received:', message.type);
+      // When we receive a WebSocket message, refresh the plans
+      if (message.type === 'session.changed' ||
+          message.type === 'task.completed' ||
+          message.type === 'task.started' ||
+          message.type === 'task.failed') {
+        refresh();
+      }
+    },
   });
 
-  // Also initialize WebSocket for real-time updates (non-blocking)
-  const { connectionState } = useWebSocket({
-    enabled: false,
-    fallbackToPolling: false,
-  });
+  // Sync polling data with state when using fallback
+  useEffect(() => {
+    if (usingFallback && polling?.data) {
+      setResponse(polling.data as PlansApiResponse);
+      setLastUpdated(polling.lastUpdated);
+      setLoading(polling.loading);
+      if (polling.error) {
+        setError(polling.error);
+      } else {
+        setError(null);
+      }
+    }
+  }, [usingFallback, polling]);
+
+  // Initial fetch
+  useEffect(() => {
+    refresh().finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const plans = response?.plans || [];
 
-  // Loading state
+  // Show loading state
   if (loading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
@@ -96,7 +148,7 @@ export function PlanList() {
           </div>
           <h2 className="text-xl font-semibold mb-2">Failed to Load Plans</h2>
           <p className="text-muted-foreground mb-4">{error.message}</p>
-          <Button onClick={() => refresh()} variant="outline">
+          <Button onClick={() => window.location.reload()} variant="outline">
             <RefreshCw className="mr-2 h-4 w-4" />
             Retry
           </Button>
@@ -143,19 +195,11 @@ export function PlanList() {
         <div className="space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Implementation Plans</h1>
-            <ConnectionStatus compact />
-            {isStale && (
-              <div
-                className={cn(
-                  'flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
-                  'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-                )}
-                title="Data is stale (older than 60 seconds)"
-              >
-                <EyeOff className="h-3 w-3" />
-                Stale
-              </div>
-            )}
+            <ConnectionStatus
+              compact
+              connectionState={connectionState}
+              usingFallback={usingFallback}
+            />
           </div>
           <p className="text-sm sm:text-base text-muted-foreground">
             Browse and manage your Ralph project implementation plans
@@ -164,45 +208,30 @@ export function PlanList() {
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
               <Clock className="h-3 w-3" />
               <span>Last updated: {formatLastUpdated(lastUpdated)}</span>
-              {isPaused && (
-                <span className="ml-2 text-muted-foreground">(Paused)</span>
-              )}
             </div>
           )}
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <Button
-            onClick={togglePause}
-            variant="outline"
-            size="sm"
-            className="flex-1 sm:flex-none"
-          >
-            {isPaused ? (
-              <>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Resume
-              </>
-            ) : (
-              <>
-                <EyeOff className="mr-2 h-4 w-4" />
-                Pause
-              </>
-            )}
-          </Button>
-          <Button
-            onClick={() => refresh()}
-            variant="outline"
-            size="sm"
+            onClick={refresh}
             disabled={loading}
+            variant="outline"
+            size="sm"
             className="flex-1 sm:flex-none"
+            title={usingFallback ? 'Using HTTP polling' : 'Real-time WebSocket connected'}
           >
-            <RefreshCw
-              className={cn('mr-2 h-4 w-4', loading && 'animate-spin')}
-            />
+            <RefreshCw className={cn('mr-2 h-4 w-4', loading && 'animate-spin')} />
             Refresh
           </Button>
         </div>
       </div>
+
+      {usingFallback && connectionState === 'connected' && (
+        <div className="rounded-lg bg-yellow-100 dark:bg-yellow-900/20 px-4 py-2 text-sm text-yellow-800 dark:text-yellow-200 flex items-center gap-2">
+          <WifiOff className="h-4 w-4" />
+          WebSocket unavailable - using HTTP polling fallback. Updates will be less frequent.
+        </div>
+      )}
 
       <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
         {plans.map((plan) => (
@@ -215,6 +244,8 @@ export function PlanList() {
             completedTasks={plan.completedTasks || 0}
             inProgressTasks={plan.inProgressTasks}
             failedTasks={plan.failedTasks}
+            progress={plan.progress}
+            projectRoot={plan.projectRoot}
           />
         ))}
       </div>

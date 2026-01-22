@@ -4,16 +4,22 @@
  * This custom server integrates Next.js with the Ralph WebSocket server
  * to enable real-time updates for task execution status.
  *
+ * The Web UI always uses the Ralph server registry for multi-project support.
+ *
  * Usage:
- *   npm run dev         # Start with WebSocket on default port (3000)
+ *   npm run dev         # Start with WebSocket on default port (3002)
  *   PORT=3001 npm run dev # Start on custom port
  *
  * Environment variables:
- *   - PORT: Server port (default: 3000)
- *   - HOST: Server host (default: localhost)
+ *   - PORT: Server port (default: 3002)
+ *   - HOST: Server host (default: 0.0.0.0)
  *   - WS_PATH: WebSocket path (default: /ws)
  *   - WS_HEARTBEAT_INTERVAL: WebSocket heartbeat interval in ms (default: 30000)
- *   - RALPH_PROJECT_ROOT: Path to Ralph project root (default: parent directory)
+ *   - RALPH_SERVER_URL: Ralph server URL (default: http://localhost:3001)
+ *
+ * Registry Mode:
+ *   The Web UI proxies all plan requests to the Ralph server's registry.
+ *   Plans from multiple projects can be managed through a single interface.
  */
 
 import { createServer } from 'http';
@@ -23,8 +29,8 @@ import { RalphWSServer } from './server/ws-server.js';
 import path from 'path';
 
 const dev = process.env.NODE_ENV !== 'production';
-const port = parseInt(process.env.PORT || '3000', 10);
-const host = process.env.HOST || 'localhost';
+const port = parseInt(process.env.PORT || '3002', 10);
+const host = process.env.HOST || '0.0.0.0';
 const wsPath = process.env.WS_PATH || '/ws';
 const heartbeatInterval = parseInt(process.env.WS_HEARTBEAT_INTERVAL || '30000', 10);
 

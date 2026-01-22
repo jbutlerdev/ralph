@@ -9,6 +9,9 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Ralph TUI Orchestrator",
   description: "Web UI for Ralph Wiggum technique",
+  icons: {
+    icon: "/icon.svg",
+  },
 };
 
 export default function RootLayout({

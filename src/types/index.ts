@@ -113,6 +113,11 @@ export interface RalphExecutorOptions {
   planPath?: string;
 
   /**
+   * Path to the Ralph MCP server executable
+   */
+  mcpServerPath?: string;
+
+  /**
    * Maximum number of retry attempts for failed tasks
    */
   maxRetries?: number;
@@ -200,3 +205,36 @@ export interface ExecutionRequest {
   maxRetries?: number;
   maxParallel?: number;
 }
+
+/**
+ * A registered plan in the registry
+ */
+export interface RegisteredPlan {
+  planId: string;
+  projectRoot: string;
+  planPath: string;
+  title?: string;
+  totalTasks?: number;
+  registeredAt: string;
+  lastAccessed?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Plan registry file structure
+ */
+export interface PlanRegistry {
+  version: number;
+  plans: Record<string, RegisteredPlan>;
+}
+
+/**
+ * Options for plan registration
+ */
+export interface RegisterPlanOptions {
+  overwrite?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+// Re-export MCP types
+export * from './mcp.js';

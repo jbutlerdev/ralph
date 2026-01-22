@@ -1,6 +1,5 @@
 'use client';
 
-import { useWebSocket } from '@/lib/ralph/useWebSocket';
 import type { WSConnectionState } from '@/lib/ralph/useWebSocket';
 import { cn } from '@/lib/utils';
 import { Wifi, WifiOff, Loader2, AlertCircle } from 'lucide-react';
@@ -8,11 +7,18 @@ import { forwardRef, HTMLAttributes } from 'react';
 
 export interface ConnectionStatusProps extends HTMLAttributes<HTMLDivElement> {
   /**
+   * Current WebSocket connection state
+   */
+  connectionState: WSConnectionState;
+  /**
+   * Whether using HTTP polling fallback
+   */
+  usingFallback?: boolean;
+  /**
    * Whether to show text label alongside the icon
    * @default true
    */
   showLabel?: boolean;
-
   /**
    * Whether to show in compact mode (smaller size)
    * @default false
@@ -26,20 +32,18 @@ export interface ConnectionStatusProps extends HTMLAttributes<HTMLDivElement> {
  * Displays the current WebSocket connection status with:
  * - Visual indicator (icon + color)
  * - Optional text label
- * - Real-time updates via useWebSocket hook
  *
  * States:
  * - connected: Green check with "Live" label
  * - connecting: Spinning loader with "Connecting..." label
  * - disconnected: Gray wifi-off with "Offline" label
  * - error: Red alert with "Connection Error" label
+ *
+ * Note: This component is a pure display component. The parent component
+ * should use useWebSocket to manage the connection and pass the state here.
  */
 export const ConnectionStatus = forwardRef<HTMLDivElement, ConnectionStatusProps>(
-  ({ showLabel = true, compact = false, className, ...props }, ref) => {
-    const { connectionState, usingFallback } = useWebSocket({
-      // Note: This component will trigger WebSocket connection
-      // The actual polling fetcher should be provided by parent components
-    });
+  ({ connectionState, usingFallback = false, showLabel = true, compact = false, className, ...props }, ref) => {
 
     const getStatusConfig = () => {
       switch (connectionState) {

@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { TaskList } from './TaskList';
 import { DependencyGraph } from './DependencyGraph';
+import { EditPlanModal } from './EditPlanModal';
 import { Button } from './ui/button';
 import {
   CheckCircle2,
@@ -17,19 +18,36 @@ import {
   GitGraph,
   RefreshCw,
   EyeOff,
+  Edit3,
+  Play,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { RalphTask } from '@/lib/plan-utils';
-import { usePolling, type UsePollingResult } from '@/lib/ralph/usePolling';
-import { useWebSocket } from '@/lib/ralph/useWebSocket';
 import { ConnectionStatus } from './ConnectionStatus';
+
+// Re-export TaskStatus from status.ts as RuntimeTaskStatus for compatibility
+export type RuntimeTaskStatus = 'pending' | 'in-progress' | 'completed' | 'blocked' | 'failed';
+
+export interface TaskWithStatus extends RalphTask {
+  runtimeStatus: RuntimeTaskStatus;
+}
+
+export interface RuntimeStatusSummary {
+  completedTasks: number;
+  inProgressTasks: number;
+  failedTasks: number;
+  blockedTasks: number;
+  pendingTasks: number;
+  progress: number;
+  sessionId?: string;
+}
 
 export interface PlanDetailData {
   id: string;
   name: string;
   description: string;
   overview: string;
-  tasks: RalphTask[];
+  tasks: TaskWithStatus[];
   metadata: {
     totalTasks: number;
     generatedAt: string;
@@ -39,6 +57,8 @@ export interface PlanDetailData {
     valid: boolean;
     warnings: string[];
   };
+  runtimeStatus?: RuntimeStatusSummary;
+  projectRoot?: string;
 }
 
 interface PlanDetailApiResponse {
@@ -58,82 +78,89 @@ interface PlanDetailApiResponse {
  * - Progress indicator
  * - Filterable/sortable task list
  * - Breadcrumb navigation
- * - Real-time updates via WebSocket (with polling fallback)
- * - Connection status indicator
  * - Manual refresh button with loading state
- * - Last updated timestamp
- * - Stale data indicator
- * - Pause/Resume polling (when using fallback)
+ * - Restart execution button
  */
 export function PlanDetail({ planId }: { planId: string }) {
   const [viewMode, setViewMode] = useState<'list' | 'graph'>('list');
+  const [plan, setPlan] = useState<PlanDetailData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [savingPlan, setSavingPlan] = useState(false);
+  const [togglingTask, setTogglingTask] = useState<Set<string>>(new Set());
+  const [restarting, setRestarting] = useState(false);
 
-  // Use WebSocket for real-time updates with polling fallback
-  const { connectionState, usingFallback, lastMessage } = useWebSocket({
-    fallbackToPolling: true,
-    pollingInterval: parseInt(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS || '5000', 10),
-    pollingFetcher: async () => {
+  // Simple fetch function
+  const fetchPlan = async () => {
+    try {
+      setLoading(true);
+      setError(null);
       const res = await fetch(`/api/plans/${planId}`);
       if (!res.ok) {
         throw new Error(`HTTP error! status: ${res.status}`);
       }
-      return res.json();
-    },
-  });
-
-  // Always call usePolling, but only enable when using fallback
-  const pollingResult = usePolling<PlanDetailApiResponse>({
-    fetcher: async () => {
-      const res = await fetch(`/api/plans/${planId}`);
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
+      const data: PlanDetailApiResponse = await res.json();
+      if (data.success && data.plan) {
+        setPlan(data.plan);
+        setLastUpdated(new Date());
+      } else {
+        throw new Error(data.error || 'Plan not found');
       }
-      return res.json();
-    },
-    interval: parseInt(process.env.NEXT_PUBLIC_POLL_INTERVAL_MS || '5000', 10),
-    pollOnlyWhenVisible: true,
-    staleTime: 60000,
-    enabled: usingFallback,
-  });
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to load plan'));
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const lastMessageAt = lastMessage ? new Date(lastMessage.timestamp) : null;
+  // Restart execution
+  const handleRestart = async () => {
+    if (restarting) return;
 
-  // Use WebSocket or polling result
-  const {
-    data: response,
-    loading,
-    error,
-    lastUpdated,
-    isStale,
-    isPaused,
-    refresh,
-    togglePause,
-  }: UsePollingResult<PlanDetailApiResponse> = usingFallback
-    ? pollingResult
-    : ({
-        data: lastMessage?.data || null,
-        loading: false,
-        error: null,
-        lastUpdated: lastMessageAt,
-        isStale: false,
-        isPaused: false,
-        refresh: async () => {
-          const res = await fetch(`/api/plans/${planId}`);
-          if (!res.ok) {
-            throw new Error(`HTTP error! status: ${res.status}`);
-          }
-          return;
+    setRestarting(true);
+    try {
+      const response = await fetch(`/api/plans/${planId}/restart`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        togglePause: () => {},
-      } as UsePollingResult<PlanDetailApiResponse>);
+        body: JSON.stringify({}),
+      });
 
-  const plan = response?.plan || null;
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType?.includes('application/json')) {
+            const error = await response.json();
+            errorMessage = error.message || error.error || errorMessage;
+          }
+        } catch {
+          // Failed to parse error, keep default message
+        }
+        throw new Error(errorMessage);
+      }
 
-  // Calculate progress (since tasks don't have status, we'll assume 0% for now)
-  const progress = plan ? 0 : 0;
-  const completedTasks = 0;
-  const inProgressTasks = 0;
-  const failedTasks = 0;
+      const result = await response.json();
+      if (result.success) {
+        console.log(`Restarted plan ${planId}, session: ${result.sessionId}`);
+        // Refresh the plan to show updated status after a brief delay
+        setTimeout(() => fetchPlan(), 1000);
+      }
+    } catch (error) {
+      console.error('Failed to restart plan:', error);
+      alert(error instanceof Error ? error.message : 'Failed to restart plan');
+    } finally {
+      setRestarting(false);
+    }
+  };
+
+  // Initial fetch
+  useEffect(() => {
+    fetchPlan();
+  }, [planId]);
 
   // Format timestamp
   const formatLastUpdated = (date: Date | null): string => {
@@ -181,6 +208,107 @@ export function PlanDetail({ planId }: { planId: string }) {
     );
   }
 
+  // Calculate progress from runtime status
+  const progress = plan.runtimeStatus?.progress ?? 0;
+  const completedTasks = plan.runtimeStatus?.completedTasks ?? 0;
+  const inProgressTasks = plan.runtimeStatus?.inProgressTasks ?? 0;
+  const failedTasks = plan.runtimeStatus?.failedTasks ?? 0;
+
+  // Save edited tasks and metadata
+  const handleSaveTasks = async (editedTasks: RalphTask[], metadata?: { name: string; description: string }) => {
+    try {
+      setSavingPlan(true);
+
+      // If metadata is provided, update it first
+      if (metadata && (metadata.name || metadata.description)) {
+        // We need to update the plan file's **Project:** field and Overview section
+        const response = await fetch(`/api/plans/${planId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            updateType: 'metadata',
+            metadata: {
+              projectName: metadata.name,
+              description: metadata.description,
+            },
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to update plan metadata');
+        }
+      }
+
+      // Send all tasks to the API using PUT for each task
+      for (const task of editedTasks) {
+        const response = await fetch(`/api/plans/${planId}?taskId=${task.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(task),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to update task');
+        }
+      }
+
+      // Refresh the plan to show updated data
+      await fetchPlan();
+    } catch (error) {
+      console.error('Error saving tasks:', error);
+      throw error;
+    } finally {
+      setSavingPlan(false);
+    }
+  };
+
+  // Toggle task completion status
+  const handleToggleComplete = async (taskId: string) => {
+    try {
+      setTogglingTask(prev => new Set(prev).add(taskId));
+
+      const task = plan.tasks.find(t => t.id === taskId);
+      if (!task) return;
+
+      const newStatus: RalphTask['status'] =
+        task.status === 'Implemented' || task.status === 'Verified' ? 'To Do' : 'Implemented';
+
+      const response = await fetch(`/api/plans/${planId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          taskId,
+          status: newStatus,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update task status');
+      }
+
+      // Refresh the plan to show updated data
+      await fetchPlan();
+    } catch (error) {
+      console.error('Failed to toggle task completion:', error);
+      throw error;
+    } finally {
+      setTogglingTask(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(taskId);
+        return newSet;
+      });
+    }
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Breadcrumb Navigation */}
@@ -202,61 +330,48 @@ export function PlanDetail({ planId }: { planId: string }) {
           <div className="space-y-1 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{plan.name}</h1>
-              <ConnectionStatus />
-              {isStale && (
-                <div
-                  className={cn(
-                    'flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
-                    'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-                  )}
-                  title="Data is stale (older than 60 seconds)"
-                >
-                  <EyeOff className="h-3 w-3" />
-                  Stale
-                </div>
-              )}
+              <ConnectionStatus connectionState="connected" usingFallback={true} />
             </div>
             <p className="text-sm sm:text-base text-muted-foreground">{plan.description}</p>
             {lastUpdated && (
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Clock className="h-3 w-3" />
                 <span>Last updated: {formatLastUpdated(lastUpdated)}</span>
-                {isPaused && (
-                  <span className="ml-2 text-muted-foreground">(Paused)</span>
-                )}
               </div>
             )}
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <Button
-              onClick={togglePause}
+              onClick={fetchPlan}
               variant="outline"
               size="sm"
-              className="flex-1 sm:flex-none"
-            >
-              {isPaused ? (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Resume
-                </>
-              ) : (
-                <>
-                  <EyeOff className="mr-2 h-4 w-4" />
-                  Pause
-                </>
-              )}
-            </Button>
-            <Button
-              onClick={() => refresh()}
-              variant="outline"
-              size="sm"
-              disabled={loading}
+              disabled={loading || savingPlan || restarting}
               className="flex-1 sm:flex-none"
             >
               <RefreshCw
                 className={cn('mr-2 h-4 w-4', loading && 'animate-spin')}
               />
               Refresh
+            </Button>
+            <Button
+              onClick={() => setEditModalOpen(true)}
+              variant="default"
+              size="sm"
+              disabled={loading || savingPlan || restarting}
+              className="flex-1 sm:flex-none"
+            >
+              <Edit3 className="mr-2 h-4 w-4" />
+              Edit Plan
+            </Button>
+            <Button
+              onClick={handleRestart}
+              disabled={restarting || loading || savingPlan}
+              variant="outline"
+              size="sm"
+              className="flex-1 sm:flex-none"
+            >
+              <Play className={cn('mr-2 h-4 w-4', restarting && 'animate-pulse')} />
+              {restarting ? 'Starting...' : 'Restart'}
             </Button>
           </div>
         </div>
@@ -380,6 +495,11 @@ export function PlanDetail({ planId }: { planId: string }) {
                 })}
               </span>
             </div>
+            {plan.projectRoot && (
+              <div className="flex items-center gap-2">
+                <span className="font-mono">{plan.projectRoot}</span>
+              </div>
+            )}
             {plan.metadata.estimatedDuration && (
               <div className="flex items-center gap-2">
                 <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
@@ -417,11 +537,31 @@ export function PlanDetail({ planId }: { planId: string }) {
         </div>
 
         {viewMode === 'list' ? (
-          <TaskList tasks={plan.tasks} />
+          <TaskList tasks={plan.tasks} onToggleComplete={handleToggleComplete} togglingTasks={togglingTask} planId={planId} />
         ) : (
           <DependencyGraph tasks={plan.tasks} planId={planId} />
         )}
       </div>
+
+      {/* Edit Plan Modal */}
+      {plan && (
+        <EditPlanModal
+          open={editModalOpen}
+          onOpenChange={setEditModalOpen}
+          tasks={plan.tasks}
+          completedTaskIds={new Set(
+            plan.tasks
+              .filter(t => t.runtimeStatus === 'completed')
+              .map(t => t.id)
+          )}
+          planMetadata={{
+            name: plan.name,
+            description: plan.description,
+          }}
+          onSave={handleSaveTasks}
+          loading={savingPlan}
+        />
+      )}
     </div>
   );
 }

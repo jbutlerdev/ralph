@@ -1,54 +1,55 @@
 import { NextResponse } from 'next/server';
-import { listAllPlans, loadPlan } from '../../../lib/plan-utils';
-import path from 'path';
+
+// Registry mode - always use Ralph server's API
+const RALPH_SERVER_URL = process.env.RALPH_SERVER_URL || 'http://localhost:3001';
 
 /**
  * GET /api/plans
  *
- * Lists all available Ralph implementation plans.
- * Searches for IMPLEMENTATION_PLAN.md files in the plans directory.
+ * Lists all available Ralph implementation plans from the Ralph server registry.
  */
 export async function GET() {
   try {
-    // Get project root - in development, this is the Ralph project root
-    // In production, this would be configured appropriately
-    const projectRoot = path.resolve(process.cwd(), '..');
+    // Forward request to Ralph server
+    const response = await fetch(`${RALPH_SERVER_URL}/plans`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
 
-    const planNames = await listAllPlans(projectRoot);
+    if (!response.ok) {
+      const error = await response.json();
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Failed to fetch plans from Ralph server',
+          message: error.message || response.statusText,
+        },
+        { status: response.status }
+      );
+    }
 
-    // Load each plan to get task counts
-    const plans = await Promise.all(
-      planNames.map(async (name) => {
-        try {
-          const planPath = path.join(projectRoot, 'plans', name, 'IMPLEMENTATION_PLAN.md');
-          const plan = await loadPlan(planPath);
-          return {
-            id: name,
-            name,
-            description: plan.description || 'No description',
-            path: `plans/${name}/IMPLEMENTATION_PLAN.md`,
-            totalTasks: plan.totalTasks,
-            completedTasks: 0, // Tasks don't have status yet
-            inProgressTasks: 0,
-            failedTasks: 0,
-          };
-        } catch {
-          // If we can't load a plan, return basic info
-          return {
-            id: name,
-            name,
-            description: 'No description',
-            path: `plans/${name}/IMPLEMENTATION_PLAN.md`,
-            totalTasks: 0,
-            completedTasks: 0,
-            inProgressTasks: 0,
-            failedTasks: 0,
-          };
-        }
-      })
-    );
+    const data = await response.json();
 
-    // Return response with CORS headers for local development
+    // Transform the response to match our expected format
+    const plans = data.plans.map((plan: any) => ({
+      id: plan.id,
+      name: plan.title || plan.id,
+      description: plan.description || 'No description',
+      path: plan.path,
+      projectRoot: plan.projectRoot,
+      totalTasks: plan.totalTasks || 0,
+      completedTasks: plan.completedTasks ?? 0,
+      inProgressTasks: plan.inProgressTasks ?? 0,
+      blockedTasks: plan.blockedTasks ?? 0,
+      pendingTasks: plan.pendingTasks ?? 0,
+      failedTasks: plan.failedTasks ?? 0,
+      progress: plan.progress ?? 0,
+      registeredAt: plan.registeredAt,
+      lastAccessed: plan.lastAccessed,
+    }));
+
     return NextResponse.json(
       {
         success: true,

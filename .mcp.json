@@ -15,7 +15,7 @@
       "type": "stdio",
       "command": "node",
       "args": [
-        "/data/jbutler/git/jbutlerdev/ralph/dist/mcp/server.js"
+        "dist/mcp/server.js"
       ],
       "env": {
         "RALPH_SESSION_ID": "",

@@ -174,22 +174,8 @@ export class RalphExecutor {
 
   /**
    * Get the next task to execute
-   * Prioritizes failed tasks that need retry, then gets next pending task
    */
   private getNextTask(): RalphTask | null {
-    // First, check for failed tasks that haven't reached max retries
-    for (const task of this.plan.tasks) {
-      if (this.session.failedTasks.has(task.id) && !this.session.completedTasks.has(task.id)) {
-        // Count attempts for this failed task
-        const attempts = this.session.taskHistory.filter(h => h.taskId === task.id).length;
-        if (attempts < (this.options.maxRetries || 3)) {
-          // This task needs retry
-          return task;
-        }
-      }
-    }
-
-    // No failed tasks need retry, get next pending task
     return getNextTask(this.plan, this.session.completedTasks);
   }
 
@@ -223,17 +209,7 @@ export class RalphExecutor {
       // Execute using Claude Code SDK
       result = await this.executeWithClaude(task, prompt);
 
-      // Auto-commit if enabled
-      if (this.options.autoCommit) {
-        await this.commitTask(task, result);
-      }
-
-      // Auto-test if enabled
-      if (this.options.autoTest) {
-        await this.runTests(task);
-      }
-
-      // Update execution state (only after all steps succeed)
+      // Update execution state
       taskExecution.status = 'completed';
       taskExecution.completedAt = new Date().toISOString();
       taskExecution.duration = Date.now() - startTime;
@@ -247,10 +223,17 @@ export class RalphExecutor {
         await this.options.hooks.onTaskComplete(task, result, this.session);
       }
 
-    } catch (error) {
-      // Remove from completed if it was added (shouldn't happen with new logic, but just in case)
-      this.session.completedTasks.delete(task.id);
+      // Auto-commit if enabled
+      if (this.options.autoCommit) {
+        await this.commitTask(task, result);
+      }
 
+      // Auto-test if enabled
+      if (this.options.autoTest) {
+        await this.runTests(task);
+      }
+
+    } catch (error) {
       taskExecution.status = 'failed';
       taskExecution.completedAt = new Date().toISOString();
       taskExecution.duration = Date.now() - startTime;
@@ -403,25 +386,6 @@ export class RalphExecutor {
     // Get final git state to determine what changed
     const finalStatus = await gitInstance.status();
 
-    // Gitignore patterns for filtering
-    const gitIgnorePatterns = [
-      'node_modules/', '.next/', 'dist/', 'build/', '.git/',
-      'test-results/', 'playwright-report/', '.swc/', 'coverage/',
-      '*.log', '.env*', '.DS_Store', '*.webm', '*.png', '*.mp4', '*.zip',
-    ];
-
-    const isGitignored = (filePath: string): boolean => {
-      return gitIgnorePatterns.some(pattern => {
-        if (pattern.endsWith('/')) {
-          return filePath.startsWith(pattern) || filePath.includes(`/${pattern}`);
-        }
-        if (pattern.startsWith('*')) {
-          return filePath.endsWith(pattern.slice(1));
-        }
-        return filePath === pattern;
-      });
-    };
-
     // Calculate file changes
     const filesAdded: string[] = [];
     const filesModified: string[] = [];
@@ -430,11 +394,6 @@ export class RalphExecutor {
     // Files that are now staged but weren't before
     for (const file of finalStatus.files) {
       const wasTracked = initialStatus.files.some(f => f.path === file.path);
-
-      // Skip gitignored files at the source
-      if (isGitignored(file.path)) {
-        continue;
-      }
 
       if (!wasTracked && file.index === 'added') {
         filesAdded.push(file.path);
@@ -477,78 +436,20 @@ export class RalphExecutor {
 
     const commitMessage = this.buildCommitMessage(task, result);
 
-    // Filter out commonly gitignored paths (node_modules, test results, build artifacts, etc.)
-    const gitIgnorePatterns = [
-      'node_modules/',
-      '.next/',
-      'dist/',
-      'build/',
-      '.git/',
-      'test-results/',
-      'playwright-report/',
-      '.swc/',
-      'coverage/',
-      '*.log',
-      '.env*',
-      '.DS_Store',
-      '*.webm',
-      '*.png',
-      '*.mp4',
-      '*.zip',
-    ];
+    // Stage all changes
+    await gitInstance.add([
+      ...result.filesAdded,
+      ...result.filesModified,
+      ...result.filesDeleted.map(f => `:${f}`), // : prefix removes files
+    ].filter(Boolean));
 
-    // Debug logging before filtering
-    console.log(`  [DEBUG] Total files BEFORE filtering: added=${result.filesAdded.length}, modified=${result.filesModified.length}, deleted=${result.filesDeleted.length}`);
-    if (result.filesModified.length > 0 && result.filesModified.some(f => f.includes('playwright-report'))) {
-      console.log(`  [DEBUG] playwright-report files in filesModified:`, result.filesModified.filter(f => f.includes('playwright-report')).slice(0, 3));
-    }
+    // Commit with the formatted message
+    await gitInstance.commit(commitMessage);
 
-    const isGitignored = (filePath: string): boolean => {
-      const result = gitIgnorePatterns.some(pattern => {
-        if (pattern.endsWith('/')) {
-          // Check if the path starts with pattern OR contains pattern in any segment
-          return filePath.startsWith(pattern) || filePath.includes(`/${pattern}`) || `/${filePath}`.includes(`/${pattern}`);
-        }
-        if (pattern.startsWith('*')) {
-          const ext = pattern.slice(1);
-          return filePath.endsWith(ext);
-        }
-        return filePath === pattern;
-      });
-      if (result && filePath.includes('playwright-report')) {
-        console.log(`  [DEBUG] Filtering gitignored file: ${filePath}`);
-      }
-      return result;
-    };
-
-    // Filter out gitignored files
-    const filesToStage = [
-      ...result.filesAdded.filter(f => !isGitignored(f)),
-      ...result.filesModified.filter(f => !isGitignored(f)),
-      ...result.filesDeleted.filter(f => !isGitignored(f)).map(f => `:${f}`),
-    ].filter(Boolean);
-
-    // Debug logging after filtering
-    console.log(`  [DEBUG] Total files AFTER filtering: ${filesToStage.length} files to stage`);
-    if (filesToStage.length > 0) {
-      console.log(`  [DEBUG] Files to stage: ${filesToStage.length}`);
-    }
-
-    // Only commit if there are changes to commit
-    if (filesToStage.length > 0) {
-      // Stage all changes
-      await gitInstance.add(filesToStage);
-
-      // Commit with the formatted message
-      await gitInstance.commit(commitMessage);
-
-      // Get the commit hash
-      const log = await gitInstance.log({ maxCount: 1 });
-      if (log.latest) {
-        result.commitHash = log.latest.hash;
-      }
-    } else {
-      console.warn(`  [WARNING] No git-tracked files to commit for task ${task.id}`);
+    // Get the commit hash
+    const log = await gitInstance.log({ maxCount: 1 });
+    if (log.latest) {
+      result.commitHash = log.latest.hash;
     }
   }
 
@@ -670,12 +571,6 @@ export class RalphExecutor {
         const totalAttempts = this.session.taskHistory.filter(h => h.taskId === taskId).length;
         const maxRetries = this.options.maxRetries || 3;
 
-        console.error(`  [DEBUG] Total attempts: ${totalAttempts}, Max retries: ${maxRetries}`);
-        console.error(`  [DEBUG] failedTasks size: ${this.session.failedTasks.size}`);
-        console.error(`  [DEBUG] completedTasks size: ${this.session.completedTasks.size}`);
-        console.error(`  [DEBUG] Task ${taskId} in failedTasks: ${this.session.failedTasks.has(taskId)}`);
-        console.error(`  [DEBUG] Task ${taskId} in completedTasks: ${this.session.completedTasks.has(taskId)}`);
-
         if (totalAttempts >= maxRetries) {
           console.error(`  Max retries (${maxRetries}) reached for ${taskId}, marking as failed and continuing`);
           // Add to failedTasks to prevent infinite retry loop
@@ -703,11 +598,6 @@ export class RalphExecutor {
 
       // Get next task
       task = this.getNextTask();
-      console.error(`  [DEBUG] getNextTask() returned: ${task ? `${task.id} (${task.title})` : 'null'}`);
-      if (task) {
-        console.error(`  [DEBUG] Returned task status: ${task.status}`);
-        console.error(`  [DEBUG] Returned task in completedTasks: ${this.session.completedTasks.has(task.id)}`);
-      }
     }
 
     // Execution complete
@@ -808,34 +698,10 @@ async function verifyCriterion(criterion: string, projectRoot: string): Promise<
 
   // Fast-path checks for common patterns (avoid SDK overhead)
 
-  // Pattern 1: "`X` exists" or "`X` file exists" -> check file/path existence (backtick notation)
-  const backtickExistsMatch = trimmed.match(/^`(.+?)`(?:\s+file)?\s+exists$/i);
-  if (backtickExistsMatch) {
-    const filePath = path.join(projectRoot, backtickExistsMatch[1].trim());
-    try {
-      await fs.access(filePath);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  // Pattern 2: "X exists" or "X file exists" -> check file/path existence
+  // Pattern 1: "X exists" or "X file exists" -> check file/path existence
   const existsMatch = trimmed.match(/^(.+?)(?:\s+file)?\s+exists$/i);
   if (existsMatch) {
     const filePath = path.join(projectRoot, existsMatch[1].trim());
-    try {
-      await fs.access(filePath);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  // Pattern 2.5: "X exists and..." -> check file/path exists (partial match)
-  const existsPartialMatch = trimmed.match(/^(.+?)\s+exists\s+(?:and|with|containing)/i);
-  if (existsPartialMatch) {
-    const filePath = path.join(projectRoot, existsPartialMatch[1].trim());
     try {
       await fs.access(filePath);
       return true;
@@ -906,9 +772,6 @@ ${criterion}
 **Important:**
 - Be thorough - check files, run tests if needed, examine the actual implementation
 - If the criterion mentions something "exists", "is created", "is implemented", etc., verify it actually exists
-- Use direct file paths with the Read tool to check specific files - don't rely on search patterns that might skip gitignored files
-- Files in node_modules, .next, build directories, test-results, and other gitignored directories DO EXIST and should be checked
-- If you need to verify a file exists, use the Read tool with its full path directly
 - If the criterion mentions functionality, verify the code implements it
 - Return your answer as a single word: either "true" or "false" (lowercase, no punctuation)`;
 
@@ -924,7 +787,7 @@ ${criterion}
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
-          append: '\n\nWhen verifying acceptance criteria:\n- Check files directly using Read tool with full paths\n- Files in gitignored directories (node_modules, .next, test-results, etc.) ARE present and should be verified\n- Return ONLY "true" or "false" as your final answer.',
+          append: '\n\nWhen verifying acceptance criteria, be thorough and precise. Return ONLY "true" or "false" as your final answer.',
         },
         maxTurns: 20,
       },
