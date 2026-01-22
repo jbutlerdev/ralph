@@ -4,29 +4,62 @@
  * Reads Claude Code agent logs from .ralph/logs/ directory.
  * Logs are captured during task execution and contain tool results,
  * file changes, and other meaningful events.
+ *
+ * Log format follows Claude Code's stream-json output format.
  */
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
 /**
- * Log message types from Claude Code SDK stream-json format
+ * Log message types from Claude Code stream-json format
  */
 export type LogMessageType =
   | 'assistant'    // AI responses
-  | 'user'         // User messages/prompts
+  | 'user'         // User messages/prompts (tool results)
   | 'result'       // Execution results
   | 'system'       // System messages
   | 'log';         // Internal log messages
 
 /**
- * Log message entry from .ralph/logs/*.log files
+ * Raw log entry from stream-json output
  */
-export interface LogMessage {
-  timestamp: string;
-  type: LogMessageType;
+export interface RawLogEntry {
+  timestamp?: string;
+  type: string;
   subtype?: string;
+  message?: {
+    content?: Array<{
+      type: string;
+      text?: string;
+      name?: string;
+      input?: Record<string, unknown>;
+      content?: string | Array<{ text?: string }>;
+      is_error?: boolean;
+      thinking?: string;
+    }>;
+  };
+  result?: string;
+  total_cost_usd?: number;
+  num_turns?: number;
+  duration_ms?: number;
+  session_id?: string;
+  model?: string;
   content?: string;
+}
+
+/**
+ * Conversation message for display
+ */
+export interface ConversationMessage {
+  id: string;
+  timestamp: string;
+  role: 'assistant' | 'user' | 'system' | 'result';
+  type: 'text' | 'tool_use' | 'tool_result' | 'thinking' | 'system' | 'result';
+  content: string;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  isError?: boolean;
   metadata?: Record<string, unknown>;
 }
 
@@ -43,7 +76,7 @@ export interface TaskLogInfo {
 }
 
 /**
- * Parsed log with readable format
+ * Parsed log with readable format (legacy format for backward compatibility)
  */
 export interface ParsedLogEntry {
   id: string;
@@ -53,6 +86,12 @@ export interface ParsedLogEntry {
   content: string;
   rawContent?: string;
   metadata?: Record<string, unknown>;
+  // New fields for conversational display
+  role?: 'assistant' | 'user' | 'system' | 'result';
+  messageType?: 'text' | 'tool_use' | 'tool_result' | 'thinking' | 'system' | 'result';
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  isError?: boolean;
 }
 
 /**
@@ -126,6 +165,177 @@ export async function listLogFiles(
 }
 
 /**
+ * Parse stream-json log content into conversation messages
+ */
+export function parseStreamJsonLog(content: string): ConversationMessage[] {
+  const messages: ConversationMessage[] = [];
+  const lines = content.split('\n').filter(line => line.trim());
+  let messageIndex = 0;
+
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line) as RawLogEntry;
+      const timestamp = parsed.timestamp || new Date().toISOString();
+
+      if (parsed.type === 'system') {
+        messages.push({
+          id: `msg-${messageIndex++}`,
+          timestamp,
+          role: 'system',
+          type: 'system',
+          content: parsed.subtype === 'init'
+            ? `Session initialized (model: ${parsed.model || 'unknown'})`
+            : `System: ${parsed.subtype || 'message'}`,
+          metadata: parsed as unknown as Record<string, unknown>,
+        });
+      } else if (parsed.type === 'assistant') {
+        // Parse assistant message content
+        const messageContent = parsed.message?.content;
+        if (Array.isArray(messageContent)) {
+          for (const block of messageContent) {
+            if (block.type === 'text') {
+              messages.push({
+                id: `msg-${messageIndex++}`,
+                timestamp,
+                role: 'assistant',
+                type: 'text',
+                content: block.text || '',
+              });
+            } else if (block.type === 'tool_use') {
+              messages.push({
+                id: `msg-${messageIndex++}`,
+                timestamp,
+                role: 'assistant',
+                type: 'tool_use',
+                content: `Using tool: ${block.name}`,
+                toolName: block.name,
+                toolInput: block.input,
+              });
+            } else if (block.type === 'thinking') {
+              messages.push({
+                id: `msg-${messageIndex++}`,
+                timestamp,
+                role: 'assistant',
+                type: 'thinking',
+                content: block.thinking || '',
+              });
+            }
+          }
+        }
+      } else if (parsed.type === 'user') {
+        // Parse user/tool result message content
+        const messageContent = parsed.message?.content;
+        if (Array.isArray(messageContent)) {
+          for (const block of messageContent) {
+            if (block.type === 'tool_result') {
+              let resultContent = '';
+              if (typeof block.content === 'string') {
+                resultContent = block.content;
+              } else if (Array.isArray(block.content)) {
+                resultContent = block.content
+                  .map((c) => c.text || JSON.stringify(c))
+                  .join('\n');
+              }
+              messages.push({
+                id: `msg-${messageIndex++}`,
+                timestamp,
+                role: 'user',
+                type: 'tool_result',
+                content: resultContent,
+                isError: block.is_error || false,
+              });
+            } else if (block.type === 'text') {
+              messages.push({
+                id: `msg-${messageIndex++}`,
+                timestamp,
+                role: 'user',
+                type: 'text',
+                content: block.text || '',
+              });
+            }
+          }
+        }
+      } else if (parsed.type === 'result') {
+        messages.push({
+          id: `msg-${messageIndex++}`,
+          timestamp,
+          role: 'result',
+          type: 'result',
+          content: parsed.result || '',
+          isError: parsed.subtype !== 'success',
+          metadata: {
+            subtype: parsed.subtype,
+            totalCostUsd: parsed.total_cost_usd,
+            numTurns: parsed.num_turns,
+            durationMs: parsed.duration_ms,
+          },
+        });
+      } else if (parsed.type === 'log') {
+        // Internal log message
+        messages.push({
+          id: `msg-${messageIndex++}`,
+          timestamp,
+          role: 'system',
+          type: 'system',
+          content: parsed.content || '',
+        });
+      }
+    } catch {
+      // Non-JSON line, treat as raw output
+      messages.push({
+        id: `msg-${messageIndex++}`,
+        timestamp: new Date().toISOString(),
+        role: 'system',
+        type: 'system',
+        content: line,
+      });
+    }
+  }
+
+  return messages;
+}
+
+/**
+ * Convert conversation messages to legacy ParsedLogEntry format
+ */
+function conversationToLegacy(messages: ConversationMessage[]): ParsedLogEntry[] {
+  return messages.map((msg) => {
+    let level: ParsedLogEntry['level'] = 'info';
+    let legacyType: LogMessageType = 'assistant';
+
+    if (msg.role === 'system') {
+      legacyType = 'system';
+      level = 'debug';
+    } else if (msg.role === 'assistant') {
+      legacyType = 'assistant';
+      level = 'info';
+    } else if (msg.role === 'user') {
+      legacyType = 'user';
+      level = msg.isError ? 'error' : 'debug';
+    } else if (msg.role === 'result') {
+      legacyType = 'result';
+      level = msg.isError ? 'error' : 'success';
+    }
+
+    return {
+      id: msg.id,
+      timestamp: msg.timestamp,
+      type: legacyType,
+      level,
+      content: msg.content,
+      rawContent: msg.content,
+      metadata: msg.metadata,
+      // Include new fields
+      role: msg.role,
+      messageType: msg.type,
+      toolName: msg.toolName,
+      toolInput: msg.toolInput,
+      isError: msg.isError,
+    };
+  });
+}
+
+/**
  * Read and parse a log file
  */
 export async function readLogFile(
@@ -147,21 +357,8 @@ export async function readLogFile(
 
   try {
     const content = await fs.readFile(logPath, 'utf-8');
-    const lines = content.split('\n').filter(line => line.trim());
-
-    const entries: ParsedLogEntry[] = [];
-
-    for (let i = 0; i < lines.length; i++) {
-      try {
-        const message = JSON.parse(lines[i]) as LogMessage;
-        entries.push(parseLogMessage(message, i));
-      } catch {
-        // Skip malformed lines
-        continue;
-      }
-    }
-
-    return entries;
+    const conversationMessages = parseStreamJsonLog(content);
+    return conversationToLegacy(conversationMessages);
   } catch (error) {
     console.error('Error reading log file:', error);
     return [];
@@ -169,70 +366,32 @@ export async function readLogFile(
 }
 
 /**
- * Parse a log message into a readable format
+ * Read log file and return conversation messages
  */
-function parseLogMessage(
-  message: LogMessage,
-  index: number
-): ParsedLogEntry {
-  const { timestamp, type, subtype, content, metadata } = message;
+export async function readLogFileAsConversation(
+  projectRoot: string,
+  sessionId: string,
+  taskId?: string
+): Promise<ConversationMessage[]> {
+  const logFileName = taskId
+    ? `session-${sessionId}-${taskId}.log`
+    : `session-${sessionId}.log`;
 
-  let level: ParsedLogEntry['level'] = 'info';
-  let parsedContent = content || '';
+  const logPath = path.join(projectRoot, LOGS_DIR, logFileName);
 
-  // Determine log level and format content based on message type
-  if (type === 'result') {
-    if (subtype === 'success') {
-      level = 'success';
-      parsedContent = content || 'Task completed successfully';
-    } else if (subtype === 'error_during_execution') {
-      level = 'error';
-      const errors = (metadata?.rawMessage as Record<string, unknown>)?.errors;
-      parsedContent = `Task failed: ${Array.isArray(errors) ? errors.join(', ') : 'Unknown error'}`;
-    }
-  } else if (type === 'log') {
-    // Extract level from log content: "[INFO] message", "[ERROR] message", etc.
-    const logMatch = content?.match(/^\[(INFO|WARN|ERROR|DEBUG|SUCCESS)\]\s*(.*)$/i);
-    if (logMatch) {
-      const [, logLevel, logContent] = logMatch;
-      level = logLevel.toLowerCase() as ParsedLogEntry['level'];
-      parsedContent = logContent;
-    }
-  } else if (type === 'system') {
-    level = 'debug';
-    parsedContent = subtype ? `System: ${subtype}` : 'System message';
-  } else if (type === 'assistant') {
-    level = 'info';
-    // Parse assistant content for readability
-    if (content) {
-      try {
-        const contentArray = JSON.parse(content);
-        if (Array.isArray(contentArray)) {
-          // Extract text from content blocks
-          const textBlocks = contentArray
-            .filter((block: any) => block.type === 'text')
-            .map((block: any) => block.text)
-            .join('\n');
-          parsedContent = textBlocks || content;
-        }
-      } catch {
-        parsedContent = content;
-      }
-    }
-  } else if (type === 'user') {
-    level = 'debug';
-    parsedContent = content || 'User message';
+  try {
+    await fs.access(logPath);
+  } catch {
+    return [];
   }
 
-  return {
-    id: `log-${index}`,
-    timestamp,
-    type,
-    level,
-    content: parsedContent,
-    rawContent: content,
-    metadata,
-  };
+  try {
+    const content = await fs.readFile(logPath, 'utf-8');
+    return parseStreamJsonLog(content);
+  } catch (error) {
+    console.error('Error reading log file:', error);
+    return [];
+  }
 }
 
 /**
@@ -302,10 +461,18 @@ export interface LogStats {
   totalEntries: number;
   byLevel: Record<string, number>;
   byType: Record<string, number>;
+  byRole: Record<string, number>;
   timeRange: {
     earliest: string | null;
     latest: string | null;
   };
+  toolCalls: number;
+  toolResults: number;
+  errors: number;
+  hasResult: boolean;
+  resultSuccess: boolean;
+  cost?: number;
+  turns?: number;
 }
 
 export function getLogStats(logs: ParsedLogEntry[]): LogStats {
@@ -313,10 +480,16 @@ export function getLogStats(logs: ParsedLogEntry[]): LogStats {
     totalEntries: logs.length,
     byLevel: {},
     byType: {},
+    byRole: {},
     timeRange: {
       earliest: null,
       latest: null,
     },
+    toolCalls: 0,
+    toolResults: 0,
+    errors: 0,
+    hasResult: false,
+    resultSuccess: false,
   };
 
   for (const log of logs) {
@@ -325,6 +498,28 @@ export function getLogStats(logs: ParsedLogEntry[]): LogStats {
 
     // Count by type
     stats.byType[log.type] = (stats.byType[log.type] || 0) + 1;
+
+    // Count by role
+    if (log.role) {
+      stats.byRole[log.role] = (stats.byRole[log.role] || 0) + 1;
+    }
+
+    // Track tool calls and results
+    if (log.messageType === 'tool_use') stats.toolCalls++;
+    if (log.messageType === 'tool_result') stats.toolResults++;
+
+    // Track errors
+    if (log.isError || log.level === 'error') stats.errors++;
+
+    // Track result
+    if (log.messageType === 'result' || log.type === 'result') {
+      stats.hasResult = true;
+      stats.resultSuccess = !log.isError;
+      if (log.metadata) {
+        stats.cost = log.metadata.totalCostUsd as number | undefined;
+        stats.turns = log.metadata.numTurns as number | undefined;
+      }
+    }
 
     // Track time range
     const timestamp = new Date(log.timestamp).getTime();

@@ -1,6 +1,6 @@
 ---
 name: ralph-plan-generator
-description: Generate structured implementation plans for Ralph Wiggum autonomous development loops. Creates tasks with IDs, priorities, dependencies, and acceptance criteria for AI-driven development. Use when: starting a new Ralph loop, breaking down specs into executable tasks, or creating task lists for autonomous iteration.
+description: Generate structured implementation plans for Ralph autonomous development loops. Creates tasks with IDs, priorities, dependencies, and acceptance criteria for AI-driven development. Use when starting a new Ralph loop, breaking down specs into executable tasks, or creating task lists for autonomous iteration.
 allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 user-invocable: true
 ---
@@ -9,7 +9,7 @@ user-invocable: true
 
 ## Description
 
-Generates a structured implementation plan for Ralph Wiggum loops. Creates tasks with proper IDs, priorities, dependencies, and acceptance criteria that can be consumed by TypeScript code for autonomous iteration.
+Generates a structured implementation plan for Ralph Wiggum loops. Creates tasks with proper IDs, priorities, dependencies, and acceptance criteria that can be consumed by the Ralph executor server for autonomous iteration.
 
 ## When to Use
 
@@ -22,71 +22,96 @@ Generates a structured implementation plan for Ralph Wiggum loops. Creates tasks
 
 When invoked, follow this process:
 
-1. **Analyze Requirements**: Read the user's requirements carefully
-2. **Gather Context**: Use exploration tools to understand the codebase structure
-3. **Identify Topics**: Break down requirements into "topics of concern"
-4. **Generate Spec Files** (optional): Create `specs/[topic].md` files for complex projects
-5. **Create Implementation Plan**: Generate a structured plan with tasks
-6. **Output in Multiple Formats**: Provide both Markdown and JSON
+### Step 1: Analyze Requirements
+
+Read the user's requirements carefully. Identify:
+- Core functionality needed
+- Technical constraints
+- Integration points
+- Testing requirements
+
+### Step 2: Gather Context
+
+Use exploration tools to understand the codebase structure:
+- Read existing code to understand patterns
+- Identify relevant files and directories
+- Note existing conventions and styles
+
+### Step 3: Identify Topics of Concern
+
+Break down requirements into logical "topics of concern":
+- Each topic should be a cohesive unit of work
+- Topics should have minimal cross-dependencies
+- Consider: setup, core logic, integrations, tests, documentation
+
+### Step 4: Create Implementation Plan
+
+Generate a structured plan with tasks in the following Markdown format.
 
 ## Output Format
 
-### 1. Markdown Format (IMPLEMENTATION_PLAN.md)
+Create an `IMPLEMENTATION_PLAN.md` file in the `plans/<plan-name>/` directory:
 
 ```markdown
 # Implementation Plan
 
 ## Overview
-[Brief project description]
+[Brief project description - 1-2 sentences explaining the goal]
+
+**Project:** [Project Name]
+**Total Tasks:** [N]
+**Estimated Duration:** [X-Y days]
+
+---
 
 ## Tasks
 
-### Task 1: Task Title
+### Task 1: [Task Title]
 **ID:** task-001
-**Priority:** high|medium|low
+**Status:** To Do
+**Priority:** high
 **Dependencies:** task-000
 
 **Description:**
-[Detailed description of what to implement]
+[Detailed description of what to implement. Be specific about files to create/modify,
+functions to implement, and patterns to follow.]
+
+**Acceptance Criteria:**
+- [ ] Criterion 1 - specific, verifiable condition
+- [ ] Criterion 2 - another verifiable condition
+- [ ] Criterion 3 - test or verification step
+
+---
+
+### Task 2: [Task Title]
+**ID:** task-002
+**Status:** To Do
+**Priority:** medium
+**Dependencies:** task-001
+
+**Description:**
+[Detailed description...]
 
 **Acceptance Criteria:**
 - [ ] Criterion 1
 - [ ] Criterion 2
-- [ ] Criterion 3
 
-**Spec Reference:** [Topic](specs/topic.md)
 ---
-```
-
-### 2. JSON Format (for TypeScript consumption)
-
-```json
-{
-  "projectName": "Project Name",
-  "description": "Project description",
-  "overview": "Brief overview",
-  "tasks": [
-    {
-      "id": "task-001",
-      "title": "Task Title",
-      "description": "Detailed description",
-      "priority": "high",
-      "dependencies": ["task-000"],
-      "acceptanceCriteria": ["Criterion 1", "Criterion 2", "Criterion 3"],
-      "specReference": "specs/topic.md",
-      "estimatedComplexity": 3,
-      "tags": ["frontend", "auth"]
-    }
-  ],
-  "generatedAt": "2025-01-17T00:00:00.000Z",
-  "totalTasks": 1,
-  "estimatedDuration": "2-3 days"
-}
 ```
 
 ## Task ID Format
 
 Use sequential zero-padded IDs: `task-001`, `task-002`, `task-003`, etc.
+
+The special ID `task-000` means "no dependencies" (task can start immediately).
+
+## Status Values
+
+- **To Do**: Task not yet started
+- **In Progress**: Currently being worked on
+- **Implemented**: Code complete, awaiting verification
+- **Needs Re-Work**: Failed verification, needs fixes
+- **Verified**: Complete and verified
 
 ## Priority Levels
 
@@ -100,91 +125,106 @@ Use sequential zero-padded IDs: `task-001`, `task-002`, `task-003`, etc.
 2. **No Circular References**: Ensure the dependency graph is acyclic
 3. **Clear Ordering**: Dependencies should represent logical sequencing
 4. **Prerequisite Check**: All dependency IDs must exist in the plan
+5. **Use task-000**: For tasks with no dependencies
 
-## Acceptance Criteria
+## Acceptance Criteria Guidelines
 
 Each task must have 1-5 acceptance criteria that:
-- Are objectively verifiable (tests pass, file exists, etc.)
-- Can be automatically checked
+- Are objectively verifiable (tests pass, file exists, function works, etc.)
+- Can be automatically or manually checked
 - Define clear completion conditions
-- Use action verbs: "implements", "creates", "adds", "fixes"
+- Use action verbs: "implements", "creates", "adds", "fixes", "returns"
 
-## Complexity Estimation
+Good examples:
+- `src/utils/parser.ts exists and exports parseConfig function`
+- `Unit tests pass: npm test -- parser.test.ts`
+- `Function returns correct output for edge cases (null, empty array)`
+- `API endpoint responds with 200 status for valid requests`
 
-1 = Trivial (1-2 lines, simple change)
-2 = Simple (small function, clear scope)
-3 = Moderate (multiple files, some complexity)
-4 = Complex (significant logic, many files)
-5 = Very Complex (architectural changes, high risk)
+Bad examples:
+- `Code is clean` (subjective)
+- `Works correctly` (vague)
+- `Implementation is good` (not verifiable)
+
+## Plan Storage Convention
+
+Store each plan in its own named folder under `plans/`:
+
+```
+plans/
+├── web-ui/
+│   └── IMPLEMENTATION_PLAN.md
+├── api-server/
+│   └── IMPLEMENTATION_PLAN.md
+└── authentication/
+    └── IMPLEMENTATION_PLAN.md
+```
 
 ## Example Tasks
 
 ### Example 1: Setup Task
+
 ```markdown
-### Task 1: Initialize TypeScript project
+### Task 1: Initialize project structure
 **ID:** task-001
+**Status:** To Do
 **Priority:** high
 **Dependencies:** task-000
 
 **Description:**
-Initialize a new TypeScript project with proper configuration. Set up package.json with all required dependencies and scripts.
+Create the initial project structure with TypeScript configuration. Set up package.json with required dependencies and scripts. Configure tsconfig.json for ES2022 with NodeNext module resolution.
 
 **Acceptance Criteria:**
-- [ ] package.json exists with tsconfig.json (ES2022, NodeNext)
-- [ ] Dependencies installed: @anthropic-ai/claude-agent-sdk, zustand, ink
-- [ ] Dev scripts: dev, build, test configured
-- [ ] tsconfig.json configured correctly
-- [ ] ESLint and Prettier configured (optional)
+- [ ] package.json exists with name, version, and scripts (dev, build, test)
+- [ ] tsconfig.json configured with target ES2022, module NodeNext
+- [ ] src/ directory created with index.ts entry point
+- [ ] npm install completes without errors
 
-**Complexity:** 2
-**Tags:** ["setup", "typescript"]
 ---
 ```
 
-### Example 2: Feature Task
+### Example 2: Feature Implementation Task
+
 ```markdown
-### Task 2: Implement session store
+### Task 2: Implement user authentication service
 **ID:** task-002
+**Status:** To Do
 **Priority:** high
 **Dependencies:** task-001
 
 **Description:**
-Create a Zustand store for managing session state. The store should track session ID, phase, current task, execution status, and metadata. Include methods for updating session state and getting progress.
+Create an authentication service that handles user login and token generation. The service should use JWT for tokens with configurable expiration. Implement login, logout, and token refresh methods.
 
 **Acceptance Criteria:**
-- [ ] src/store/sessionStore.ts exists
-- [ ] Store exports useSessionStore hook
-- [ ] State includes: sessionId, phase, currentTaskId, isExecuting, error
-- [ ] Metadata includes: startedAt, lastActivity, totalTokens, totalCost
-- [ ] Actions: setSession, updatePhase, setError, clearSession
-- [ ] TypeScript types exported separately
+- [ ] src/services/auth.ts exports AuthService class
+- [ ] login(email, password) returns JWT token on success
+- [ ] logout(token) invalidates the token
+- [ ] refreshToken(token) returns new token if valid
+- [ ] Tokens expire after configured duration (default 1 hour)
 
-**Spec Reference:** [State Management](specs/state-management.md)
-**Complexity:** 3
-**Tags:** ["state", "zustand", "store"]
 ---
 ```
 
-### Example 3: Test Task
+### Example 3: Testing Task
+
 ```markdown
-### Task 3: Add tests for session store
+### Task 3: Add unit tests for auth service
 **ID:** task-003
+**Status:** To Do
 **Priority:** medium
 **Dependencies:** task-002
 
 **Description:**
-Write comprehensive tests for the session store using Vitest. Test state updates, actions, and edge cases. Ensure >80% coverage.
+Write comprehensive unit tests for the authentication service using the project's test framework. Mock external dependencies. Achieve >80% code coverage.
 
 **Acceptance Criteria:**
-- [ ] src/store/__tests__/sessionStore.test.ts exists
-- [ ] All state mutations tested
-- [ ] All actions tested
-- [ ] Edge cases covered (null checks, invalid state)
-- [ ] Coverage >80%
-- [ ] All tests pass: `npm run test:run`
+- [ ] src/services/__tests__/auth.test.ts exists
+- [ ] Tests cover login success and failure cases
+- [ ] Tests cover token expiration handling
+- [ ] Tests cover refresh token flow
+- [ ] All tests pass: npm test
+- [ ] Coverage report shows >80% for auth.ts
 
-**Complexity:** 2
-**Tags:** ["testing", "vitest", "store"]
 ---
 ```
 
@@ -194,102 +234,37 @@ Before finalizing the plan, ensure:
 
 - [ ] All task IDs are unique and follow `task-XXX` format
 - [ ] No circular dependencies exist
-- [ ] All dependencies reference existing task IDs
+- [ ] All dependencies reference existing task IDs (or task-000)
 - [ ] Each task has 1-5 acceptance criteria
 - [ ] Acceptance criteria are objectively verifiable
-- [ ] Tasks are ordered logically (dependencies first)
+- [ ] Tasks are ordered logically (dependencies come first in the list)
 - [ ] Priorities are assigned appropriately
 - [ ] High-priority tasks form a complete critical path
-- [ ] Total complexity is reasonable for the project scope
-- [ ] Spec references are valid (if provided)
-
-## Integration with Ralph Loop
-
-### Plan Storage Convention
-
-For multiple plans, store each plan in its own named folder under `plans/`:
-
-```
-plans/
-├── web-ui/
-│   ├── IMPLEMENTATION_PLAN.md
-│   └── IMPLEMENTATION_PLAN.json
-├── cli-tool/
-│   ├── IMPLEMENTATION_PLAN.md
-│   └── IMPLEMENTATION_PLAN.json
-└── authentication/
-    ├── IMPLEMENTATION_PLAN.md
-    └── IMPLEMENTATION_PLAN.json
-```
-
-Each plan folder contains:
-- `IMPLEMENTATION_PLAN.md` - Human-readable markdown format
-- `IMPLEMENTATION_PLAN.json` - Machine-readable JSON format
-
-### Plan Location Utilities
-
-The skill includes helper functions for managing plan locations:
-
-```typescript
-import {
-  planFromMarkdown,
-  sortTasksByDependencies,
-  getNextTask,
-  getPlanPath,
-  listAllPlans,
-  loadPlan
-} from './.claude/skills/ralph-plan-generator/ralph-plan-generator.skill.js';
-
-// List all available plans
-const plans = await listAllPlans(); // ["web-ui", "cli-tool", "authentication"]
-
-// Load a specific plan
-const plan = await loadPlan('web-ui');
-
-// Get file paths for a plan
-const { mdPath, jsonPath } = getPlanPath('web-ui');
-// mdPath = "plans/web-ui/IMPLEMENTATION_PLAN.md"
-// jsonPath = "plans/web-ui/IMPLEMENTATION_PLAN.json"
-
-// Manual reading
-const planContent = await fs.readFile(mdPath, 'utf-8');
-const plan = planFromMarkdown(planContent);
-
-// Sort by dependencies
-const sortedTasks = sortTasksByDependencies(plan.tasks);
-
-// Get next task to execute
-const completed = new Set<string>();
-const nextTask = getNextTask(plan, completed);
-
-if (nextTask) {
-  console.log(`Executing: ${nextTask.id} - ${nextTask.title}`);
-  // Execute task with AI...
-}
-```
+- [ ] Task descriptions are specific enough to implement without ambiguity
 
 ## Special Considerations
 
-1. **Granularity**: Tasks should be small enough to complete in 1-2 iterations
+1. **Granularity**: Tasks should be small enough to complete in 1-3 AI iterations
 2. **Independence**: Maximize parallel execution by minimizing dependencies
 3. **Verifiability**: Each task should have clear pass/fail criteria
-4. **Testability**: Tasks should be testable after completion
+4. **Testability**: Consider adding test tasks after implementation tasks
 5. **Atomicity**: Tasks should be complete units of work (no placeholders)
 
 ## Common Mistakes to Avoid
 
 - ❌ Tasks that are too broad ("Implement the entire UI")
-- ❌ Vague acceptance criteria ("Make it better")
+- ❌ Vague acceptance criteria ("Make it work")
 - ❌ Missing dependencies (task assumes previous work exists)
-- ❌ Over-specified acceptance criteria (implementation details, not outcomes)
-- ❌ Unprioritized tasks (everything is high priority)
-- ❌ Circular dependencies that make execution impossible
-- ❌ Tasks without completion criteria (how do we know it's done?)
+- ❌ Over-specified implementation details (tell what, not exactly how)
+- ❌ Everything marked as high priority
+- ❌ Circular dependencies
+- ❌ Tasks without completion criteria
+- ❌ Acceptance criteria that require subjective judgment
 
 ## Notes
 
-- This skill generates plans for **autonomous execution**, not human project management
+- This skill generates plans for **autonomous execution** by the Ralph server
 - Focus on **mechanical completion**, not creative direction
 - Tasks should be **AI-executable** with minimal human intervention
-- The plan becomes **shared state** between loop iterations
+- The plan becomes **shared state** between execution iterations
 - Each iteration sees the updated plan and selects the next task

@@ -64,6 +64,12 @@ export interface TaskResult {
   acceptanceCriteriaFailed: string[];
   output: string;
   commitHash?: string;
+  /** Claude session ID captured from stream-json output */
+  sessionId?: string;
+  /** Total cost in USD from Claude API */
+  costUsd?: number;
+  /** Number of turns/iterations used */
+  totalTurns?: number;
 }
 
 /**
@@ -158,7 +164,17 @@ export interface RalphExecutorOptions {
   resume?: boolean;
 
   /**
-   * Claude Code SDK options
+   * Claude model to use (e.g., 'sonnet', 'opus', 'haiku')
+   */
+  model?: string;
+
+  /**
+   * Timeout in milliseconds for task execution (default: 30 minutes)
+   */
+  timeout?: number;
+
+  /**
+   * Claude Code SDK options (deprecated - use model instead)
    */
   claudeOptions?: {
     apiKey?: string;

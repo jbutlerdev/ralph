@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { TaskList } from './TaskList';
 import { DependencyGraph } from './DependencyGraph';
@@ -24,6 +24,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { RalphTask } from '@/lib/plan-utils';
 import { ConnectionStatus } from './ConnectionStatus';
+import { useServerEvents } from '@/lib/ralph';
 
 // Re-export TaskStatus from status.ts as RuntimeTaskStatus for compatibility
 export type RuntimeTaskStatus = 'pending' | 'in-progress' | 'completed' | 'blocked' | 'failed';
@@ -92,8 +93,8 @@ export function PlanDetail({ planId }: { planId: string }) {
   const [togglingTask, setTogglingTask] = useState<Set<string>>(new Set());
   const [restarting, setRestarting] = useState(false);
 
-  // Simple fetch function
-  const fetchPlan = async () => {
+  // Fetch plan data
+  const fetchPlan = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -113,7 +114,28 @@ export function PlanDetail({ planId }: { planId: string }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [planId]);
+
+  // Set up SSE for real-time updates
+  const { connectionState, usingFallback } = useServerEvents({
+    planId,
+    enabled: true,
+    fallbackToPolling: true,
+    pollingInterval: 5000,
+    pollingFetcher: fetchPlan,
+    onPlanStatus: (event) => {
+      console.log('Plan status event received:', event.type, event.taskId);
+      // When we receive a plan status event for this plan, refresh the data
+      if (event.planId === planId) {
+        fetchPlan();
+      }
+    },
+    onTaskStatus: (event) => {
+      console.log('Task status event received:', event.status, event.taskId);
+      // Refresh to get updated task status
+      fetchPlan();
+    },
+  });
 
   // Restart execution
   const handleRestart = async () => {
@@ -330,7 +352,7 @@ export function PlanDetail({ planId }: { planId: string }) {
           <div className="space-y-1 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{plan.name}</h1>
-              <ConnectionStatus connectionState="connected" usingFallback={true} />
+              <ConnectionStatus connectionState={connectionState} usingFallback={usingFallback} compact />
             </div>
             <p className="text-sm sm:text-base text-muted-foreground">{plan.description}</p>
             {lastUpdated && (

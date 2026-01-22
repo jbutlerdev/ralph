@@ -15,6 +15,7 @@ import { loadPlan, planFromMarkdown } from './plan-generator.js';
 import type { RalphPlan } from './types/index.js';
 import { getRegistry, initRegistry } from './registry.js';
 import { getPlanRuntimeStatus, getTasksRuntimeStatus } from './status.js';
+import { logEvents, type LogEvent, type StatsEvent, type PlanStatusEvent, type TaskStatusEvent } from './log-events.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 
@@ -529,6 +530,98 @@ function createApp(config: ServerConfig): express.Application {
         message: error instanceof Error ? error.message : String(error),
       });
     }
+  });
+
+  // SSE endpoint for streaming logs
+  app.get('/logs/stream', (req: Request, res: Response) => {
+    const { sessionId, taskId } = req.query;
+
+    // Set SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.flushHeaders();
+
+    // Send initial connection message
+    res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: new Date().toISOString() })}\n\n`);
+
+    // Subscribe to log events
+    const onLog = (event: LogEvent) => {
+      // Filter by session/task if specified
+      if (sessionId && event.sessionId !== sessionId) return;
+      if (taskId && event.taskId !== taskId) return;
+
+      res.write(`data: ${JSON.stringify({ type: 'log', entry: event.entry })}\n\n`);
+    };
+
+    const onStats = (event: StatsEvent) => {
+      // Filter by session/task if specified
+      if (sessionId && event.sessionId !== sessionId) return;
+      if (taskId && event.taskId !== taskId) return;
+
+      res.write(`data: ${JSON.stringify({ type: 'stats', stats: event.stats })}\n\n`);
+    };
+
+    // Subscribe
+    logEvents.on('log', onLog);
+    logEvents.on('stats', onStats);
+
+    // Keep connection alive with periodic heartbeats
+    const heartbeat = setInterval(() => {
+      res.write(`data: ${JSON.stringify({ type: 'heartbeat', timestamp: new Date().toISOString() })}\n\n`);
+    }, 30000);
+
+    // Cleanup on client disconnect
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      logEvents.off('log', onLog);
+      logEvents.off('stats', onStats);
+    });
+  });
+
+  // SSE endpoint for plan/session status events (for dashboard updates)
+  app.get('/events/stream', (req: Request, res: Response) => {
+    const { planId } = req.query;
+
+    // Set SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.flushHeaders();
+
+    // Send initial connection message
+    res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: new Date().toISOString() })}\n\n`);
+
+    // Subscribe to plan status events
+    const onPlanStatus = (event: PlanStatusEvent) => {
+      // Filter by planId if specified
+      if (planId && event.planId !== planId) return;
+
+      res.write(`data: ${JSON.stringify({ type: 'plan-status', event })}\n\n`);
+    };
+
+    // Subscribe to task status events (for all sessions)
+    const onTaskStatus = (event: TaskStatusEvent) => {
+      res.write(`data: ${JSON.stringify({ type: 'task-status', event })}\n\n`);
+    };
+
+    // Subscribe
+    logEvents.on('plan-status', onPlanStatus);
+    logEvents.on('task-status', onTaskStatus);
+
+    // Keep connection alive with periodic heartbeats
+    const heartbeat = setInterval(() => {
+      res.write(`data: ${JSON.stringify({ type: 'heartbeat', timestamp: new Date().toISOString() })}\n\n`);
+    }, 30000);
+
+    // Cleanup on client disconnect
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      logEvents.off('plan-status', onPlanStatus);
+      logEvents.off('task-status', onTaskStatus);
+    });
   });
 
   // Global error handler - must be after all routes

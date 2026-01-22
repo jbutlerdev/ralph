@@ -1,15 +1,19 @@
 'use client';
 
 import type { WSConnectionState } from '@/lib/ralph/useWebSocket';
+import type { SSEConnectionState } from '@/lib/ralph';
 import { cn } from '@/lib/utils';
 import { Wifi, WifiOff, Loader2, AlertCircle } from 'lucide-react';
 import { forwardRef, HTMLAttributes } from 'react';
 
+// Support both WebSocket and SSE connection states
+type ConnectionState = WSConnectionState | SSEConnectionState;
+
 export interface ConnectionStatusProps extends HTMLAttributes<HTMLDivElement> {
   /**
-   * Current WebSocket connection state
+   * Current connection state (WebSocket or SSE)
    */
-  connectionState: WSConnectionState;
+  connectionState: ConnectionState;
   /**
    * Whether using HTTP polling fallback
    */
@@ -29,7 +33,7 @@ export interface ConnectionStatusProps extends HTMLAttributes<HTMLDivElement> {
 /**
  * Connection status indicator component
  *
- * Displays the current WebSocket connection status with:
+ * Displays the current connection status (WebSocket or SSE) with:
  * - Visual indicator (icon + color)
  * - Optional text label
  *
@@ -40,7 +44,7 @@ export interface ConnectionStatusProps extends HTMLAttributes<HTMLDivElement> {
  * - error: Red alert with "Connection Error" label
  *
  * Note: This component is a pure display component. The parent component
- * should use useWebSocket to manage the connection and pass the state here.
+ * should use useServerEvents or useWebSocket to manage the connection and pass the state here.
  */
 export const ConnectionStatus = forwardRef<HTMLDivElement, ConnectionStatusProps>(
   ({ connectionState, usingFallback = false, showLabel = true, compact = false, className, ...props }, ref) => {
@@ -57,7 +61,7 @@ export const ConnectionStatus = forwardRef<HTMLDivElement, ConnectionStatusProps
             dotClass: usingFallback ? 'bg-yellow-500' : 'bg-green-500',
             title: usingFallback
               ? 'Using HTTP polling fallback'
-              : 'WebSocket connected - real-time updates',
+              : 'Connected - real-time updates enabled',
           };
         case 'connecting':
           return {
@@ -65,7 +69,7 @@ export const ConnectionStatus = forwardRef<HTMLDivElement, ConnectionStatusProps
             label: 'Connecting...',
             colorClass: 'text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/20',
             dotClass: 'bg-blue-500 animate-pulse',
-            title: 'Connecting to WebSocket server...',
+            title: 'Connecting to server...',
           };
         case 'disconnected':
           return {

@@ -6,7 +6,7 @@ import { Button } from './ui/button';
 import { Loader2, AlertCircle, FolderOpen, RefreshCw, Clock, WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ConnectionStatus } from './ConnectionStatus';
-import { useWebSocket } from '@/lib/ralph/useWebSocket';
+import { useServerEvents, type SSEConnectionState } from '@/lib/ralph';
 
 export interface PlanData {
   id: string;
@@ -77,46 +77,23 @@ export function PlanList() {
     }
   }, [fetchPlans]);
 
-  // Set up WebSocket for real-time updates with polling fallback
-  const { connectionState, usingFallback, polling } = useWebSocket({
+  // Set up SSE for real-time updates with polling fallback
+  const { connectionState, usingFallback } = useServerEvents({
     enabled: true,
     fallbackToPolling: true,
     pollingInterval: 5000,
-    pollingFetcher: fetchPlans,
-    reconnect: {
-      enabled: true,
-      // Fall back to polling after 3 failed reconnection attempts
-      // This prevents endless "connecting" state in development
-      maxAttempts: 3,
-      initialDelay: 1000,
-      maxDelay: 5000,
-      exponentialBackoff: true,
+    pollingFetcher: refresh,
+    onPlanStatus: (event) => {
+      console.log('Plan status event received:', event.type);
+      // When we receive a plan status event, refresh the plans list
+      refresh();
     },
-    onMessage: (message) => {
-      console.log('WebSocket message received:', message.type);
-      // When we receive a WebSocket message, refresh the plans
-      if (message.type === 'session.changed' ||
-          message.type === 'task.completed' ||
-          message.type === 'task.started' ||
-          message.type === 'task.failed') {
-        refresh();
-      }
+    onTaskStatus: (event) => {
+      console.log('Task status event received:', event.status);
+      // When we receive a task status event, refresh the plans list
+      refresh();
     },
   });
-
-  // Sync polling data with state when using fallback
-  useEffect(() => {
-    if (usingFallback && polling?.data) {
-      setResponse(polling.data as PlansApiResponse);
-      setLastUpdated(polling.lastUpdated);
-      setLoading(polling.loading);
-      if (polling.error) {
-        setError(polling.error);
-      } else {
-        setError(null);
-      }
-    }
-  }, [usingFallback, polling]);
 
   // Initial fetch
   useEffect(() => {

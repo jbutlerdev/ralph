@@ -38,6 +38,20 @@ export type {
   CheckpointData,
 } from './useWebSocket';
 
+// Export SSE hook and types
+export {
+  useServerEvents,
+} from '../../src/lib/ralph/useServerEvents';
+
+export type {
+  UseServerEventsOptions,
+  UseServerEventsResult,
+  SSEConnectionState,
+  PlanStatusEvent,
+  TaskStatusEvent,
+  SSEMessage,
+} from '../../src/lib/ralph/useServerEvents';
+
 // Export types
 export type {
   RalphTask,
@@ -52,28 +66,27 @@ export type {
 } from './types';
 
 // Export parser functions
-export {
-  planFromMarkdown,
-  validateRalphPlan,
-  sortTasksByDependencies,
-  getNextTask,
-  calculateProgress,
-  filterByPriority,
-  filterByTag,
-  getTaskById,
-} from './parser';
+// NOTE: parser.ts uses 'path' module which is not available in browser
+// These functions should only be used in server components or API routes
+// Uncomment if you need them in server-side code:
+// export {
+//   planFromMarkdown,
+//   validateRalphPlan,
+//   sortTasksByDependencies,
+//   getNextTask,
+//   calculateProgress,
+//   filterByPriority,
+//   filterByTag,
+//   getTaskById,
+// } from './parser';
 
-// Export status functions
-export {
-  getTaskStatus,
-  getPlanStatusSummary,
-  getTasksByStatus,
-  isRalphInitialized,
-  getCurrentSession,
-} from './status';
+// Export status functions - SERVER ONLY
+// NOTE: status.ts uses fs and simple-git which are not available in browser
+// These functions should only be used in server components or API routes
+// Import directly from './status' in server-side code
 
-// Export status types
+// Export status types (client-safe, no fs/git dependencies)
 export type {
   TaskStatus,
   TaskStatusInfo,
-} from './status';
+} from './status-types';

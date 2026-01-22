@@ -1,6 +1,6 @@
 ---
 name: ralph-executor
-description: Execute Ralph Wiggum implementation plans via the Ralph Executor Server API. This skill communicates with a running Ralph server to execute tasks from an IMPLEMENTATION_PLAN.md. IMPORTANT: The server must already be running before using this skill.
+description: Execute Ralph implementation plans via the Ralph Server API. This skill communicates with a running Ralph server to execute tasks from an IMPLEMENTATION_PLAN.md. IMPORTANT - The server must already be running before using this skill.
 allowed-tools: Bash, Read
 user-invocable: true
 ---
@@ -12,16 +12,18 @@ user-invocable: true
 This skill communicates with the Ralph Executor Server via HTTP API.
 
 **IMPORTANT: The Ralph Executor Server MUST be running BEFORE using this skill.**
+
 - This skill does NOT start the server
 - The user must start the server themselves in a separate terminal
 
 **To start the server (run this in a separate terminal):**
+
 ```bash
 # Start server (default port 3001)
 ralph server
 
-# Or with custom options
-ralph server --port 3001 --directory /path/to/project
+# Or with npm
+npm run server
 ```
 
 ## CRITICAL: DO NOT IMPLEMENT CODE YOURSELF
@@ -31,102 +33,192 @@ When this skill is invoked, you must **CALL THE SERVER API ENDPOINTS**, NOT impl
 ## How This Skill Works
 
 1. **User starts server** in separate terminal: `ralph server`
-2. **User invokes skill** with plan path: `/ralph-executor plans/web-ui/IMPLEMENTATION_PLAN.md`
-3. **Skill connects to server** and posts `/execute` request
-4. **Server auto-registers the plan** (if not already registered)
-5. **Server spawns Claude sessions** to execute each task
-6. **Skill polls for status** via `/status/:sessionId` endpoint
-7. **Skill reports results** when execution completes
+2. **User invokes skill** with plan path: `/ralph-executor plans/my-plan/IMPLEMENTATION_PLAN.md`
+3. **Skill checks server health** via GET /health
+4. **Skill reads the plan** to understand what will be executed
+5. **Skill posts execute request** to start execution
+6. **Server spawns Claude sessions** to execute each task
+7. **Skill polls for status** until execution completes
+8. **Skill reports results** to the user
 
-## IMPORTANT: Always Include the Plan Path
+## Invocation
 
 When invoking this skill, you **MUST** specify the path to the implementation plan:
 
-**✅ CORRECT:**
+**Correct usage:**
 - `/ralph-executor plans/web-ui/IMPLEMENTATION_PLAN.md`
-- `/ralph-executor @plans/web-ui/IMPLEMENTATION_PLAN.md`
+- `/ralph-executor plans/api-server/IMPLEMENTATION_PLAN.md`
 
-**❌ WRONG:**
-- `/ralph-executor web-ui` (This will fail with "Plan not found in registry")
-- `/ralph-executor` (No plan specified)
+**Incorrect usage:**
+- `/ralph-executor web-ui` (bare plan ID may not work unless pre-registered)
+- `/ralph-executor` (no plan specified)
 
-The server will **auto-register** the plan if it's not already in the registry, but only when you provide a file path that:
-- Starts with `plans/` (e.g., `plans/web-ui/IMPLEMENTATION_PLAN.md`)
-- Is an absolute path
-- Contains a path separator (e.g., `web-ui/IMPLEMENTATION_PLAN.md`)
-- Ends with `.md`
+## Execution Workflow
 
-## Server API Endpoints
+Follow these steps exactly when this skill is invoked:
 
-### POST /execute
-Start execution of an implementation plan.
+### Step 1: Check Server Health
 
-**Request Body:**
+```bash
+curl -s http://localhost:3001/health
+```
+
+Expected response:
 ```json
 {
-  "plan": "plans/web-ui/IMPLEMENTATION_PLAN.md",  // Optional: path to plan
-  "directory": "/path/to/project",                 // Optional: project root
-  "noCommit": false,                               // Optional: disable auto-commit
-  "autoTest": true,                                // Optional: run tests after tasks
-  "dryRun": false,                                 // Optional: dry run only
-  "maxRetries": 3,                                 // Optional: max retry attempts
-  "maxParallel": 1                                 // Optional: max parallel tasks
+  "status": "healthy",
+  "timestamp": "2025-01-22T12:00:00.000Z",
+  "activeSessions": 0,
+  "projectRoot": "/path/to/project"
 }
 ```
 
+**If the server is not running** (connection refused or no response), inform the user:
+
+> The Ralph Executor Server is not running. Please start it in a separate terminal:
+>
+> ```bash
+> ralph server
+> ```
+>
+> After starting the server, invoke the ralph-executor skill again.
+
+**DO NOT attempt to start the server yourself.**
+
+### Step 2: Read and Display Plan Summary
+
+Read the plan file to understand what will be executed:
+
+```bash
+# Read the plan file
+cat plans/web-ui/IMPLEMENTATION_PLAN.md
+```
+
+Display to the user:
+- Project name
+- Total number of tasks
+- High-priority tasks
+- Estimated scope
+
+### Step 3: Execute the Plan
+
+Make a POST request to start execution:
+
+```bash
+curl -X POST http://localhost:3001/execute \
+  -H "Content-Type: application/json" \
+  -d '{"plan": "plans/web-ui/IMPLEMENTATION_PLAN.md"}'
+```
+
+**Request body options:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `plan` | string | required | Path to IMPLEMENTATION_PLAN.md |
+| `directory` | string | plan directory | Project root directory |
+| `noCommit` | boolean | false | Disable automatic git commits |
+| `autoTest` | boolean | false | Run tests after task completion |
+| `requireAcceptanceCriteria` | boolean | false | Fail tasks if acceptance criteria not met |
+| `dryRun` | boolean | false | Dry run only (no actual execution) |
+| `maxRetries` | number | 3 | Maximum retry attempts per task |
+| `maxParallel` | number | 1 | Maximum parallel task execution |
+
 **Response:**
+
 ```json
 {
-  "sessionId": "session-1738000000000",
+  "sessionId": "session-1737550000000",
   "status": "started",
   "plan": {
-    "title": "Ralph Web UI",
-    "totalTasks": 12
+    "title": "Web UI Implementation",
+    "totalTasks": 8
   },
+  "projectRoot": "/path/to/project",
   "message": "Execution started in background"
 }
 ```
 
-### GET /status/:sessionId
-Get the status of an execution session.
+Save the `sessionId` for status polling.
 
-**Response (running):**
+### Step 4: Poll for Status
+
+Poll the status endpoint until execution completes:
+
+```bash
+curl -s http://localhost:3001/status/session-1737550000000
+```
+
+**Status responses:**
+
+Running:
 ```json
 {
-  "sessionId": "session-1738000000000",
+  "sessionId": "session-1737550000000",
   "status": "running",
   "message": "Execution in progress"
 }
 ```
 
-**Response (completed):**
+Completed:
 ```json
 {
-  "sessionId": "session-1738000000000",
+  "sessionId": "session-1737550000000",
   "status": "completed",
   "result": {
-    "sessionId": "session-1738000000000",
-    "completedTasks": ["task-001", "task-002"],
+    "sessionId": "session-1737550000000",
+    "completedTasks": ["task-001", "task-002", "task-003"],
     "failedTasks": [],
-    "totalTasks": 12,
-    "duration": 1234567,
-    "startTime": "2025-01-18T12:00:00.000Z",
-    "endTime": "2025-01-18T13:30:00.000Z"
+    "totalTasks": 3,
+    "duration": 125000,
+    "startTime": "2025-01-22T12:00:00.000Z",
+    "endTime": "2025-01-22T12:02:05.000Z"
   }
 }
 ```
 
-**Response (failed):**
+Failed:
 ```json
 {
-  "sessionId": "session-1738000000000",
+  "sessionId": "session-1737550000000",
   "status": "failed",
-  "error": "Error message here"
+  "error": "Task task-002 failed: Build errors in src/components/App.tsx"
+}
+```
+
+**Polling strategy:**
+- Poll every 10-15 seconds
+- Continue until status is "completed" or "failed"
+- Report progress to user periodically
+
+### Step 5: Report Results
+
+When execution completes, report to the user:
+
+- Total tasks executed
+- Completed tasks
+- Failed tasks (if any)
+- Total duration
+- Next steps (if failures occurred)
+
+## API Reference
+
+### GET /health
+
+Health check endpoint.
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-01-22T12:00:00.000Z",
+  "activeSessions": 1,
+  "projectRoot": "/path/to/project"
 }
 ```
 
 ### GET /plans
-List all available implementation plans.
+
+List all available/registered plans.
 
 **Response:**
 ```json
@@ -135,117 +227,144 @@ List all available implementation plans.
     {
       "id": "web-ui",
       "path": "/path/to/plans/web-ui/IMPLEMENTATION_PLAN.md",
-      "title": "Ralph Web UI",
-      "totalTasks": 12
+      "projectRoot": "/path/to/project",
+      "title": "Web UI Implementation",
+      "totalTasks": 8,
+      "completedTasks": 3,
+      "inProgressTasks": 1,
+      "pendingTasks": 4,
+      "failedTasks": 0,
+      "progress": 37
     }
   ]
 }
 ```
 
 ### GET /plans/:planId
+
 Get details of a specific plan.
 
 **Response:**
 ```json
 {
   "plan": {
-    "metadata": {
-      "title": "Ralph Web UI",
-      "description": "...",
-      "totalTasks": 12,
-      "estimatedDuration": "5-7 days"
-    },
-    "tasks": [...]
+    "projectName": "Web UI Implementation",
+    "description": "Build the web dashboard",
+    "totalTasks": 8,
+    "tasks": [
+      {
+        "id": "task-001",
+        "title": "Setup project structure",
+        "priority": "high",
+        "dependencies": ["task-000"],
+        "runtimeStatus": "completed"
+      }
+    ],
+    "runtimeStatus": {
+      "totalTasks": 8,
+      "completedTasks": 3,
+      "inProgressTasks": 1,
+      "pendingTasks": 4,
+      "failedTasks": 0,
+      "progress": 37
+    }
+  }
+}
+```
+
+### POST /execute
+
+Start execution of an implementation plan.
+
+**Request:**
+```json
+{
+  "plan": "plans/web-ui/IMPLEMENTATION_PLAN.md",
+  "requireAcceptanceCriteria": true
+}
+```
+
+**Response:**
+```json
+{
+  "sessionId": "session-1737550000000",
+  "status": "started",
+  "plan": {
+    "title": "Web UI Implementation",
+    "totalTasks": 8
+  },
+  "message": "Execution started in background"
+}
+```
+
+### GET /status/:sessionId
+
+Get execution status for a session.
+
+**Response (running):**
+```json
+{
+  "sessionId": "session-1737550000000",
+  "status": "running",
+  "message": "Execution in progress"
+}
+```
+
+**Response (completed):**
+```json
+{
+  "sessionId": "session-1737550000000",
+  "status": "completed",
+  "result": {
+    "completedTasks": ["task-001", "task-002"],
+    "failedTasks": [],
+    "totalTasks": 2,
+    "duration": 60000,
+    "startTime": "2025-01-22T12:00:00.000Z",
+    "endTime": "2025-01-22T12:01:00.000Z"
   }
 }
 ```
 
 ### GET /sessions
+
 List all active execution sessions.
 
 **Response:**
 ```json
 {
   "sessions": [
-    {
-      "sessionId": "session-1738000000000",
-      "status": "running"
-    },
-    {
-      "sessionId": "session-1738000000000",
-      "status": "completed"
-    }
+    {"sessionId": "session-1737550000000", "status": "running"},
+    {"sessionId": "session-1737540000000", "status": "completed"}
   ]
 }
 ```
 
 ### DELETE /sessions/:sessionId
-Delete a completed session from memory.
 
-### GET /health
-Health check endpoint.
+Delete a completed session from memory.
 
 **Response:**
 ```json
 {
-  "status": "healthy",
-  "timestamp": "2025-01-18T12:00:00.000Z",
-  "activeSessions": 1,
-  "projectRoot": "/path/to/project"
+  "sessionId": "session-1737550000000",
+  "status": "deleted",
+  "message": "Session removed"
 }
 ```
 
-## Your Responsibilities
+### POST /plans/:planId/restart
 
-1. **Check if server is running** via GET /health
-2. **If server not running**, inform user they need to start it themselves:
-   - "The Ralph Executor Server is not running. Please start it in a separate terminal with: `ralph server`"
-   - DO NOT attempt to start the server yourself
-3. **Read the plan file** to understand what will be executed
-4. **Post API request** to `/execute` endpoint to start execution
-5. **Monitor status** by polling `/status/:sessionId`
-6. **Report results** to the user
+Restart execution of a registered plan.
 
-## What NOT to Do
-
-- ❌ DO NOT implement the tasks yourself
-- ❌ DO NOT write code for the tasks in the plan
-- ❌ DO NOT use Write/Edit tools to complete tasks
-- ❌ DO NOT create files or make changes directly
-- ❌ DO NOT try to start the server - this is the user's responsibility
-
-## Example Workflow
-
-```
-User: /ralph-executor plans/web-ui/IMPLEMENTATION_PLAN.md
-
-Assistant: I'll execute the implementation plan using the Ralph Executor server.
-
-[Check server health...]
-curl -s http://localhost:3001/health
-
-[Read plan to understand it...]
-Plan: Ralph Web UI
-Total tasks: 12
-Estimated duration: 5-7 days
-
-[Trigger execution via API with full plan path]
-curl -X POST http://localhost:3001/execute \
-  -H "Content-Type: application/json" \
-  -d '{"plan": "plans/web-ui/IMPLEMENTATION_PLAN.md"}'
-
-Response: {"sessionId": "session-1738000000000", ...}
-
-[Monitor progress by polling status...]
-while true; do
-  curl -s http://localhost:3001/status/session-1738000000000 | jq .
-  sleep 5
-done
-
-[Report final status to user when complete]
+**Request:**
+```json
+{
+  "requireAcceptanceCriteria": true
+}
 ```
 
-**Key Point:** Notice the full path `plans/web-ui/IMPLEMENTATION_PLAN.md` is used. Using just `web-ui` would fail with "Plan not found in registry" unless the plan was manually registered beforehand.
+**Response:** Same as POST /execute
 
 ## Error Handling
 
@@ -253,44 +372,36 @@ done
 
 If GET /health fails or returns connection refused:
 
-```
-The Ralph Executor Server is not running. Please start it in a separate terminal:
+> The Ralph Executor Server is not running. Please start it in a separate terminal:
+>
+> ```bash
+> ralph server
+> ```
+>
+> After starting the server, invoke the ralph-executor skill again.
 
-  ralph server --port 3001
+**DO NOT attempt to start the server yourself.**
 
-After starting the server, invoke the ralph-executor skill again.
-```
+### Plan Not Found
 
-DO NOT attempt to start the server yourself.
+If the plan file doesn't exist:
 
-### Execution Fails
+> Plan file not found: plans/web-ui/IMPLEMENTATION_PLAN.md
+>
+> Please verify the plan path and try again. Use the ralph-plan-generator skill to create a new plan if needed.
 
-If execution fails:
-1. Check the error message
-2. **If "Plan not found in registry"**: Make sure you specified the full path (e.g., `plans/web-ui/IMPLEMENTATION_PLAN.md`), not just a plan ID (e.g., `web-ui`)
-3. Verify the plan file exists and is valid
-4. Suggest the user checks server logs
-5. Recommend retrying after fixing issues
+### Execution Failure
 
-**Common error - "Plan not found in registry":**
-This error occurs when you pass a bare plan ID (like `web-ui`) that isn't registered. Always use the full file path:
-
-```
-❌ POST /execute {"plan": "web-ui"}           # Fails - not in registry
-✅ POST /execute {"plan": "plans/web-ui/IMPLEMENTATION_PLAN.md"}  # Works - auto-registers
-```
-
-## Important Notes
-
-- The Ralph server is typically started via: `ralph server` or `npm run server`
-- Server runs on http://localhost:3001 by default
-- Session state is stored in `.ralph/sessions/`
-- Each task runs in an isolated Claude Code session (spawned by the server)
-- This skill only communicates with the server via HTTP API
+If execution fails, report:
+- The error message
+- Which task failed
+- Suggest checking server logs: `Check the terminal running 'ralph server' for detailed logs`
+- Recommend fixing the issue and retrying
 
 ## What This Skill Does
 
-- ✅ Connects to Ralph Executor Server via HTTP API
+- ✅ Checks if Ralph server is running
+- ✅ Reads and summarizes the plan
 - ✅ Submits plans for execution via POST /execute
 - ✅ Polls for execution status via GET /status/:sessionId
 - ✅ Reports results to the user
@@ -298,6 +409,11 @@ This error occurs when you pass a bare plan ID (like `web-ui`) that isn't regist
 ## What This Skill Does NOT Do
 
 - ❌ Start the server
-- ❌ Run the server in the background
 - ❌ Implement tasks from the plan
 - ❌ Write code or make file changes
+- ❌ Run the server in the background
+
+## Example Session
+
+```
+User: /ralph-executor plans/web-ui/IMPLEMENTATION_PLAN.md

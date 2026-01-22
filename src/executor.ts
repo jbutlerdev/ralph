@@ -2,12 +2,17 @@
  * Ralph Executor Skill
  *
  * This skill orchestrates the autonomous execution of a Ralph Wiggum implementation plan.
- * It uses the Claude Code SDK to run independent sessions for each task, managing
+ * It uses the Claude Code CLI to run independent sessions for each task, managing
  * dependencies, checkpoints, and state persistence.
+ *
+ * Execution approach inspired by claudeception - uses CLI subprocess with
+ * --output-format stream-json for proper log capture and real-time visibility.
  */
 
 import * as fs from 'fs/promises';
+import { createWriteStream, type WriteStream } from 'fs';
 import * as path from 'path';
+import { execa, type ResultPromise } from 'execa';
 import type {
   RalphTask,
   RalphPlan,
@@ -19,6 +24,7 @@ import type {
   RalphExecutionSession,
 } from './types/index.js';
 import { getNextTask, planFromMarkdown, validateRalphPlan } from './plan-generator.js';
+import { logEvents, parseStreamJsonLine, type LogEvent, type StatsEvent, type PlanStatusEvent } from './log-events.js';
 
 // Re-export types for the skill to use
 export type {
@@ -180,6 +186,51 @@ export class RalphExecutor {
   }
 
   /**
+   * Get the plan ID from the plan path
+   */
+  private getPlanId(): string {
+    // Extract plan ID from path (e.g., "plans/web-ui/IMPLEMENTATION_PLAN.md" -> "web-ui")
+    const planPath = this.options.planPath || '';
+    const pathParts = planPath.split(path.sep);
+
+    // Look for 'plans' directory and get the next part
+    const plansIndex = pathParts.indexOf('plans');
+    if (plansIndex >= 0 && pathParts.length > plansIndex + 1) {
+      return pathParts[plansIndex + 1];
+    }
+
+    // Fallback: use parent directory name or filename
+    if (pathParts.length >= 2) {
+      return pathParts[pathParts.length - 2];
+    }
+
+    return 'unknown';
+  }
+
+  /**
+   * Emit a plan status event
+   */
+  private emitPlanStatusEvent(
+    type: PlanStatusEvent['type'],
+    taskId?: string,
+    error?: string
+  ): void {
+    const progress = this.plan ? this.calculateProgress() : 0;
+
+    logEvents.emitPlanStatus({
+      planId: this.getPlanId(),
+      sessionId: this.session.sessionId,
+      timestamp: new Date().toISOString(),
+      type,
+      taskId,
+      progress,
+      completedTasks: this.session.completedTasks.size,
+      failedTasks: this.session.failedTasks.size,
+      inProgressTasks: this.session.currentTaskId ? 1 : 0,
+    });
+  }
+
+  /**
    * Execute a single task using Claude Code SDK
    */
   private async executeTask(task: RalphTask): Promise<TaskResult> {
@@ -198,6 +249,9 @@ export class RalphExecutor {
     if (this.options.hooks?.onTaskStart) {
       await this.options.hooks.onTaskStart(task, this.session);
     }
+
+    // Emit task started event for real-time dashboard updates
+    this.emitPlanStatusEvent('task.started', task.id);
 
     const startTime = Date.now();
     let result: TaskResult;
@@ -223,6 +277,9 @@ export class RalphExecutor {
         await this.options.hooks.onTaskComplete(task, result, this.session);
       }
 
+      // Emit task completed event for real-time dashboard updates
+      this.emitPlanStatusEvent('task.completed', task.id);
+
       // Auto-commit if enabled
       if (this.options.autoCommit) {
         await this.commitTask(task, result);
@@ -246,6 +303,9 @@ export class RalphExecutor {
       if (this.options.hooks?.onTaskFail) {
         await this.options.hooks.onTaskFail(task, error as Error, this.session);
       }
+
+      // Emit task failed event for real-time dashboard updates
+      this.emitPlanStatusEvent('task.failed', task.id, error instanceof Error ? error.message : String(error));
 
       throw error;
     }
@@ -326,14 +386,14 @@ export class RalphExecutor {
   }
 
   /**
-   * Execute a task using Claude Code SDK
-   * Uses the SDK to run non-interactively with bypassed permissions
+   * Execute a task using Claude Code CLI
+   * Uses the CLI subprocess with --output-format stream-json for proper log capture.
+   * Inspired by claudeception's execution approach.
    */
   private async executeWithClaude(task: RalphTask, prompt: string): Promise<TaskResult> {
-    const { query } = await import('@anthropic-ai/claude-agent-sdk');
     const git = await import('simple-git');
 
-    console.log(`  [DEBUG] Starting SDK execution for ${task.id}`);
+    console.log(`  [DEBUG] Starting CLI execution for ${task.id}`);
     console.log(`  [DEBUG] Project root: ${this.options.projectRoot}`);
     console.log(`  [DEBUG] Prompt length: ${prompt.length}`);
 
@@ -341,46 +401,204 @@ export class RalphExecutor {
     const gitInstance = git.simpleGit(this.options.projectRoot);
     const initialStatus = await gitInstance.status();
 
-    // Use the SDK to run Claude Code non-interactively
-    const sdkQuery = query({
-      prompt,
-      options: {
-        cwd: this.options.projectRoot,
-        permissionMode: 'bypassPermissions',
-        allowDangerouslySkipPermissions: true,
-        // Don't persist sessions for autonomous tasks
-        persistSession: false,
-        // Load project settings to get CLAUDE.md context
-        settingSources: ['project'],
-        // Use the default tool preset
-        tools: { type: 'preset', preset: 'claude_code' },
-        // Explicitly use the Claude Code system prompt with our custom instructions
-        systemPrompt: {
-          type: 'preset',
-          preset: 'claude_code',
-          append: '\n\nWhen given a task to implement, you MUST actively write, modify, or delete code files to complete the implementation. Do not just describe what should be done - actually make the code changes using available tools.',
-        },
-        // Optional: limit to one turn for autonomous execution
-        // maxTurns: 10,
+    // Setup logs directory
+    const logsDir = path.join(this.options.projectRoot, '.ralph', 'logs');
+    await fs.mkdir(logsDir, { recursive: true });
+
+    // Create log file for this task
+    const logFileName = `session-${this.session.sessionId}-${task.id}.log`;
+    const logFilePath = path.join(logsDir, logFileName);
+    const logStream = createWriteStream(logFilePath, { flags: 'w' });
+
+    // Build CLI arguments - similar to claudeception approach
+    const args: string[] = [
+      '--output-format', 'stream-json',  // NDJSON streaming output
+      '--print',                          // Headless/non-interactive mode
+      '--verbose',                        // Detailed output
+      '--dangerously-skip-permissions',   // Bypass permission prompts for autonomous execution
+    ];
+
+    // Optionally specify model if configured
+    if (this.options.model) {
+      args.push('--model', this.options.model);
+    }
+
+    // Add system prompt to reinforce autonomous behavior
+    const systemPromptAppend = `
+When given a task to implement, you MUST actively write, modify, or delete code files to complete the implementation.
+Do not just describe what should be done - actually make the code changes using available tools.
+This is an autonomous execution - there is no human to ask clarifying questions.
+Make reasonable assumptions and proceed with implementation.`;
+
+    args.push('--append-system-prompt', systemPromptAppend);
+
+    console.log(`  [DEBUG] Executing claude CLI with args: ${args.join(' ')}`);
+
+    // Execute Claude CLI as subprocess
+    let sessionId: string | undefined;
+    let finalResult: any = null;
+    const streamBuffer: string[] = [];
+    let costUsd: number | undefined;
+    let totalTurns: number | undefined;
+
+    // Get claude command - default to "claude"
+    const claudeCommand = process.env.CLAUDE_COMMAND || 'claude';
+    const [command, ...commandArgs] = claudeCommand.split(' ');
+    const allArgs = [...commandArgs, ...args];
+
+    const executable = execa(command, allArgs, {
+      input: prompt,
+      cwd: this.options.projectRoot,
+      timeout: 30 * 60 * 1000, // 30 minute timeout
+      env: {
+        ...process.env,
+        // Enable bash working directory persistence
+        CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR: 'true',
       },
     });
 
-    // Consume the async generator to wait for completion
-    let finalResult: string = '';
+    // Track stats for real-time updates
+    let messageIndex = 0;
+    let toolCallCount = 0;
+    let toolResultCount = 0;
+    let errorCount = 0;
 
-    try {
-      for await (const message of sdkQuery) {
-        if (message.type === 'result') {
-          if (message.subtype === 'success') {
-            finalResult = message.result || '';
-          } else if (message.subtype === 'error_during_execution') {
-            throw new Error(`Task execution failed: ${message.errors.join(', ')}`);
+    // Handle streaming output line by line
+    executable.stdout?.on('data', (chunk: Buffer) => {
+      const lines = chunk.toString().split('\n').filter(line => line.trim());
+      for (const line of lines) {
+        streamBuffer.push(line);
+
+        try {
+          const parsed = JSON.parse(line);
+
+          // Capture session ID from various possible locations
+          if (!sessionId) {
+            if (parsed.session_id) {
+              sessionId = parsed.session_id;
+              console.log(`  [DEBUG] Captured session ID: ${sessionId}`);
+            } else if (parsed.type === 'system' && parsed.system?.session_id) {
+              sessionId = parsed.system.session_id;
+              console.log(`  [DEBUG] Captured session ID from system message: ${sessionId}`);
+            }
+          }
+
+          // Add timestamp if missing
+          if (!parsed.timestamp) {
+            parsed.timestamp = new Date().toISOString();
+          }
+
+          // Write to log file
+          logStream.write(JSON.stringify(parsed) + '\n');
+
+          // Parse and emit real-time log event
+          const entry = parseStreamJsonLine(line, this.session.sessionId, task.id, messageIndex++);
+          if (entry) {
+            // Track stats
+            if (entry.messageType === 'tool_use') toolCallCount++;
+            if (entry.messageType === 'tool_result') toolResultCount++;
+            if (entry.isError) errorCount++;
+
+            // Emit log event for real-time streaming
+            logEvents.emitLog({
+              sessionId: this.session.sessionId,
+              taskId: task.id,
+              timestamp: entry.timestamp,
+              entry,
+            });
+          }
+
+          // Log message types for debugging
+          if (parsed.type === 'system' && parsed.subtype === 'init') {
+            console.log(`  [DEBUG] CLI initialized - model: ${parsed.model || 'unknown'}`);
+          }
+
+          // Capture the final result
+          if (parsed.type === 'result') {
+            finalResult = parsed;
+            costUsd = parsed.total_cost_usd;
+            totalTurns = parsed.num_turns;
+            console.log(`  [DEBUG] Got result - subtype: ${parsed.subtype}, cost: $${costUsd?.toFixed(4) || 'unknown'}, turns: ${totalTurns || 'unknown'}`);
+
+            // Emit final stats
+            logEvents.emitStats({
+              sessionId: this.session.sessionId,
+              taskId: task.id,
+              stats: {
+                totalEntries: messageIndex,
+                toolCalls: toolCallCount,
+                toolResults: toolResultCount,
+                errors: errorCount,
+                cost: costUsd,
+                turns: totalTurns,
+              },
+            });
+          }
+        } catch (parseErr) {
+          // Non-JSON lines - still write to log and emit
+          logStream.write(line + '\n');
+
+          const entry = parseStreamJsonLine(line, this.session.sessionId, task.id, messageIndex++);
+          if (entry) {
+            logEvents.emitLog({
+              sessionId: this.session.sessionId,
+              taskId: task.id,
+              timestamp: entry.timestamp,
+              entry,
+            });
           }
         }
       }
-    } catch (error) {
-      // Re-throw with more context
-      throw new Error(`Claude SDK execution failed for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    });
+
+    // Handle stderr
+    executable.stderr?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString().trim();
+      if (text) {
+        console.error(`  [STDERR] ${text}`);
+        // Also log to file
+        logStream.write(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          type: 'log',
+          content: `[STDERR] ${text}`,
+        }) + '\n');
+      }
+    });
+
+    try {
+      // Wait for execution to complete
+      await executable;
+    } catch (error: any) {
+      // Close log stream
+      logStream.end();
+
+      // Check if we still got a result despite the error
+      if (finalResult && finalResult.subtype === 'success') {
+        console.log(`  [DEBUG] Process exited with error but got success result`);
+      } else {
+        const errorMsg = error.message || String(error);
+        throw new Error(`Claude CLI execution failed for task ${task.id}: ${errorMsg}`);
+      }
+    }
+
+    // Close log stream
+    logStream.end();
+
+    console.log(`  [DEBUG] Execution complete. Log file: ${logFilePath}`);
+
+    // Process final result
+    if (!finalResult) {
+      throw new Error(`No result received from Claude CLI for task ${task.id}`);
+    }
+
+    let finalResultText = '';
+    if (finalResult.subtype === 'success') {
+      finalResultText = finalResult.result || '';
+    } else if (finalResult.subtype === 'error_during_execution') {
+      const errors = finalResult.errors || [];
+      throw new Error(`Task execution failed: ${errors.join(', ')}`);
+    } else {
+      throw new Error(`Task ended with ${finalResult.subtype}`);
     }
 
     // Get final git state to determine what changed
@@ -395,12 +613,12 @@ export class RalphExecutor {
     for (const file of finalStatus.files) {
       const wasTracked = initialStatus.files.some(f => f.path === file.path);
 
-      if (!wasTracked && file.index === 'added') {
+      if (!wasTracked && (file.index === 'A' || file.index === '?')) {
         filesAdded.push(file.path);
-      } else if (wasTracked && file.index !== 'deleted') {
-        filesModified.push(file.path);
-      } else if (file.index === 'deleted') {
+      } else if (file.index === 'D') {
         filesDeleted.push(file.path);
+      } else if (file.index === 'M' || file.working_dir === 'M') {
+        filesModified.push(file.path);
       }
     }
 
@@ -414,7 +632,10 @@ export class RalphExecutor {
       filesDeleted,
       acceptanceCriteriaPassed: verification.passed,
       acceptanceCriteriaFailed: verification.failed,
-      output: finalResult || `Executed task ${task.id}`,
+      output: finalResultText || `Executed task ${task.id}`,
+      sessionId,
+      costUsd,
+      totalTurns,
     };
 
     // Fail the task if acceptance criteria are required but not met
@@ -544,6 +765,9 @@ export class RalphExecutor {
     // Save initial session state
     await this.saveSession();
 
+    // Emit session started event
+    this.emitPlanStatusEvent('session.started');
+
     // Main execution loop
     let task: RalphTask | null = this.getNextTask();
 
@@ -604,6 +828,9 @@ export class RalphExecutor {
     console.log(`\n=== Execution Complete ===`);
     console.log(`Session: ${this.session.sessionId}`);
     console.log(`Tasks completed: ${this.session.completedTasks.size}/${this.plan.totalTasks}`);
+
+    // Emit session completed event
+    this.emitPlanStatusEvent('session.completed');
 
     if (this.session.failedTasks.size > 0) {
       console.log(`Tasks failed: ${this.session.failedTasks.size}`);
@@ -686,10 +913,10 @@ export async function verifyAcceptanceCriteria(
 }
 
 /**
- * Verify a single acceptance criterion using Claude Code SDK
+ * Verify a single acceptance criterion using Claude CLI
+ * Uses the same CLI subprocess approach as task execution for consistency.
  */
 async function verifyCriterion(criterion: string, projectRoot: string): Promise<boolean> {
-  const { query } = await import('@anthropic-ai/claude-agent-sdk');
   const fs = await import('fs/promises');
   const path = await import('path');
   const { spawn } = await import('child_process');
@@ -755,8 +982,10 @@ async function verifyCriterion(criterion: string, projectRoot: string): Promise<
     }
   }
 
-  // For all other patterns, use Claude SDK for semantic verification
+  // For all other patterns, use Claude CLI for semantic verification (same approach as task execution)
   try {
+    const { execa } = await import('execa');
+
     const prompt = `# Acceptance Criterion Verification
 
 You are verifying whether the following acceptance criterion has been satisfied in the codebase.
@@ -775,37 +1004,75 @@ ${criterion}
 - If the criterion mentions functionality, verify the code implements it
 - Return your answer as a single word: either "true" or "false" (lowercase, no punctuation)`;
 
-    const sdkQuery = query({
-      prompt,
-      options: {
-        cwd: projectRoot,
-        permissionMode: 'bypassPermissions',
-        allowDangerouslySkipPermissions: true,
-        persistSession: false,
-        settingSources: ['project'],
-        tools: { type: 'preset', preset: 'claude_code' },
-        systemPrompt: {
-          type: 'preset',
-          preset: 'claude_code',
-          append: '\n\nWhen verifying acceptance criteria, be thorough and precise. Return ONLY "true" or "false" as your final answer.',
-        },
-        maxTurns: 20,
+    // Build CLI arguments - same approach as executeWithClaude
+    const args: string[] = [
+      '--output-format', 'stream-json',
+      '--print',
+      '--dangerously-skip-permissions',
+      '--max-turns', '20',
+    ];
+
+    const systemPromptAppend = `
+When verifying acceptance criteria, be thorough and precise.
+Return ONLY "true" or "false" as your final answer - nothing else.`;
+
+    args.push('--append-system-prompt', systemPromptAppend);
+
+    // Get claude command - default to "claude"
+    const claudeCommand = process.env.CLAUDE_COMMAND || 'claude';
+    const [command, ...commandArgs] = claudeCommand.split(' ');
+    const allArgs = [...commandArgs, ...args];
+
+    let finalResult: any = null;
+
+    const executable = execa(command, allArgs, {
+      input: prompt,
+      cwd: projectRoot,
+      timeout: 5 * 60 * 1000, // 5 minute timeout for verification
+      env: {
+        ...process.env,
+        CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR: 'true',
       },
     });
 
-    let response = '';
-    for await (const message of sdkQuery) {
-      if (message.type === 'result') {
-        if (message.subtype === 'success') {
-          response = message.result || '';
-        } else if (message.subtype === 'error_during_execution') {
-          console.warn(`  [WARNING] SDK error during verification: ${message.errors.join(', ')}`);
-          return false;
+    // Handle streaming output to capture the result
+    executable.stdout?.on('data', (chunk: Buffer) => {
+      const lines = chunk.toString().split('\n').filter(line => line.trim());
+      for (const line of lines) {
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.type === 'result') {
+            finalResult = parsed;
+          }
+        } catch {
+          // Non-JSON lines, ignore
         }
+      }
+    });
+
+    try {
+      await executable;
+    } catch (error: any) {
+      // Check if we still got a result despite the error
+      if (!finalResult || finalResult.subtype !== 'success') {
+        console.warn(`  [WARNING] CLI verification failed for criterion: "${criterion}"`);
+        console.warn(`  [WARNING] Error: ${error.message || String(error)}`);
+        return false;
       }
     }
 
+    if (!finalResult) {
+      console.warn(`  [WARNING] No result received for criterion: "${criterion}"`);
+      return false;
+    }
+
+    if (finalResult.subtype !== 'success') {
+      console.warn(`  [WARNING] Verification ended with ${finalResult.subtype} for criterion: "${criterion}"`);
+      return false;
+    }
+
     // Parse the response - look for true/false
+    const response = finalResult.result || '';
     const normalized = response.toLowerCase().trim();
     return normalized === 'true' || normalized.startsWith('true') || normalized.includes('\ntrue');
   } catch (error) {
