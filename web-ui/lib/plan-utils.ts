@@ -13,6 +13,14 @@ import * as path from 'node:path';
 export type TaskStatus = 'To Do' | 'In Progress' | 'Implemented' | 'Needs Re-Work' | 'Verified';
 
 /**
+ * Individual acceptance criterion with its completion state
+ */
+export interface AcceptanceCriterion {
+  text: string;
+  completed: boolean;
+}
+
+/**
  * Task interface
  */
 export interface RalphTask {
@@ -21,7 +29,7 @@ export interface RalphTask {
   description: string;
   priority: 'high' | 'medium' | 'low';
   dependencies: string[];
-  acceptanceCriteria: string[];
+  acceptanceCriteria: AcceptanceCriterion[];
   specReference?: string;
   estimatedComplexity?: 1 | 2 | 3 | 4 | 5;
   tags?: string[];
@@ -87,7 +95,7 @@ export function planFromMarkdown(markdown: string, projectDir?: string): RalphPl
       currentTask = {
         title: taskHeaderMatch[2],
         dependencies: [],
-        acceptanceCriteria: [],
+        acceptanceCriteria: [] as AcceptanceCriterion[],
         priority: 'medium',
         status: DEFAULT_STATUS,
       };
@@ -149,10 +157,14 @@ export function planFromMarkdown(markdown: string, projectDir?: string): RalphPl
       continue;
     }
 
-    // Parse acceptance criteria checkboxes
-    const criteriaMatch = line.match(/^-\s+\[\s*\]\s*(.+)/);
+    // Parse acceptance criteria checkboxes (both [x] for checked and [ ] for unchecked)
+    const criteriaMatch = line.match(/^-\s+\[([ x])\]\s*(.+)/i);
     if (criteriaMatch) {
-      currentTask.acceptanceCriteria?.push(criteriaMatch[1]);
+      const isChecked = criteriaMatch[1].toLowerCase() === 'x';
+      (currentTask.acceptanceCriteria as AcceptanceCriterion[]).push({
+        text: criteriaMatch[2],
+        completed: isChecked
+      });
       continue;
     }
 

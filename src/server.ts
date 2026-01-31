@@ -16,6 +16,7 @@ import type { RalphPlan } from './types/index.js';
 import { getRegistry, initRegistry } from './registry.js';
 import { getPlanRuntimeStatus, getTasksRuntimeStatus } from './status.js';
 import { logEvents, type LogEvent, type StatsEvent, type PlanStatusEvent, type TaskStatusEvent } from './log-events.js';
+import * as logs from './logs.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 
@@ -54,6 +55,7 @@ export interface ExecutionRequest {
   plan?: string;
   directory?: string;
   resume?: boolean;
+  skipCompletedTasks?: boolean;
   noCommit?: boolean;
   autoTest?: boolean;
   requireAcceptanceCriteria?: boolean;
@@ -119,7 +121,7 @@ function createApp(config: ServerConfig): express.Application {
           try {
             const planContent = await fs.readFile(rp.planPath, 'utf-8');
             const plan = planFromMarkdown(planContent, rp.projectRoot);
-            runtimeStatus = await getPlanRuntimeStatus(plan, rp.projectRoot);
+            runtimeStatus = await getPlanRuntimeStatus(plan, rp.projectRoot, rp.planPath);
             // Use the parsed plan's projectName (read from **Project:** field or derived from directory)
             projectName = plan.projectName;
             description = plan.description || '';
@@ -179,10 +181,10 @@ function createApp(config: ServerConfig): express.Application {
       const plan = planFromMarkdown(planContent, registeredPlan.projectRoot);
 
       // Get runtime status
-      const runtimeStatus = await getPlanRuntimeStatus(plan, registeredPlan.projectRoot);
+      const runtimeStatus = await getPlanRuntimeStatus(plan, registeredPlan.projectRoot, registeredPlan.planPath);
 
       // Get task-level runtime status
-      const taskStatusMap = await getTasksRuntimeStatus(plan, registeredPlan.projectRoot);
+      const taskStatusMap = await getTasksRuntimeStatus(plan, registeredPlan.projectRoot, registeredPlan.planPath);
 
       // Attach runtime status to each task
       const tasksWithStatus = plan.tasks.map(task => {
@@ -199,6 +201,7 @@ function createApp(config: ServerConfig): express.Application {
           tasks: tasksWithStatus,
           runtimeStatus,
           projectRoot: registeredPlan.projectRoot,
+          planPath: registeredPlan.planPath,
         },
       });
     } catch (error) {
@@ -302,6 +305,8 @@ function createApp(config: ServerConfig): express.Application {
         requireAcceptanceCriteria: body.requireAcceptanceCriteria || config.requireAcceptanceCriteria,
         maxRetries: body.maxRetries || config.maxRetries || 3,
         maxParallelTasks: body.maxParallel || config.maxParallel || 1,
+        skipCompletedTasks: body.skipCompletedTasks !== false, // Default to true
+        resume: body.resume || false, // Support resume mode
       };
 
       // Load the plan first to get info
@@ -473,6 +478,8 @@ function createApp(config: ServerConfig): express.Application {
         requireAcceptanceCriteria: body.requireAcceptanceCriteria || config.requireAcceptanceCriteria,
         maxRetries: body.maxRetries || config.maxRetries || 3,
         maxParallelTasks: body.maxParallel || config.maxParallel || 1,
+        skipCompletedTasks: body.skipCompletedTasks !== false, // Default to true
+        resume: body.resume || false, // Support resume mode
       };
 
       // Load the plan first to get info
@@ -536,6 +543,8 @@ function createApp(config: ServerConfig): express.Application {
   app.get('/logs/stream', (req: Request, res: Response) => {
     const { sessionId, taskId } = req.query;
 
+    console.log(`[DEBUG] SSE connection established for /logs/stream with query:`, req.query);
+
     // Set SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -552,6 +561,7 @@ function createApp(config: ServerConfig): express.Application {
       if (sessionId && event.sessionId !== sessionId) return;
       if (taskId && event.taskId !== taskId) return;
 
+      console.log(`[DEBUG] Forwarding log event via SSE:`, event);
       res.write(`data: ${JSON.stringify({ type: 'log', entry: event.entry })}\n\n`);
     };
 
@@ -622,6 +632,75 @@ function createApp(config: ServerConfig): express.Application {
       logEvents.off('plan-status', onPlanStatus);
       logEvents.off('task-status', onTaskStatus);
     });
+  });
+
+  // Get logs for a session or task
+  app.get('/logs', async (req: Request, res: Response) => {
+    const { sessionId: sessionIdParam, taskId, planId } = req.query;
+    let sessionId = typeof sessionIdParam === 'string' ? sessionIdParam : undefined;
+
+    if (typeof planId !== 'string') {
+      return res.status(400).json({ error: 'planId is required' });
+    }
+
+    try {
+      const registry = getRegistry();
+      const registeredPlan = await registry.getPlan(planId);
+
+      if (!registeredPlan) {
+        return res.status(404).json({ error: `Plan '${planId}' not found in registry.` });
+      }
+
+      const projectRoot = registeredPlan.projectRoot;
+
+      // If sessionId is not provided, try to find it for the plan
+      if (!sessionId) {
+        const { readLatestSession } = await import('./status.js');
+        const sessionsDir = path.join(projectRoot, '.ralph', 'sessions');
+        const session = await readLatestSession(sessionsDir, registeredPlan.planPath);
+        if (session) {
+          sessionId = session.sessionId;
+        }
+      }
+
+      if (!sessionId) {
+        // No active session found, return empty logs gracefully.
+        const { getLogStats } = await import('./logs.js');
+        return res.json({
+          success: true,
+          logs: [],
+          stats: getLogStats([]),
+          sessionId: null,
+        });
+      }
+
+      const { readLogFile, getSessionLogs, getLogStats } = await import('./logs.js');
+
+      let logs: any[]; // Type ParsedLogEntry from logs.ts
+      if (typeof taskId === 'string') {
+        logs = await readLogFile(projectRoot, sessionId, taskId);
+      } else {
+        const sessionLogsMap = await getSessionLogs(projectRoot, sessionId);
+        logs = Array.from(sessionLogsMap.values()).flat();
+        logs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      }
+
+      const stats = getLogStats(logs);
+
+      res.json({
+        success: true,
+        logs,
+        stats,
+        sessionId,
+      });
+
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to read logs',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
 
   // Global error handler - must be after all routes

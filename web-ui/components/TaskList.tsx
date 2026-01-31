@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
-import type { RalphTask } from '@/lib/plan-utils';
+import type { RalphTask } from '@/lib/ralph/types';
 import type { TaskWithStatus, RuntimeTaskStatus } from './PlanDetail';
 
 export type TaskFilter = 'all' | 'pending' | 'in-progress' | 'completed' | 'blocked' | 'failed';

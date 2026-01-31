@@ -105,6 +105,7 @@ export function TaskLogs({ planId, taskId, open, onOpenChange }: TaskLogsProps) 
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
   const [autoScroll, setAutoScroll] = useState(true);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -131,6 +132,9 @@ export function TaskLogs({ planId, taskId, open, onOpenChange }: TaskLogsProps) 
       const data = await response.json();
       setLogs(data.logs || []);
       setStats(data.stats || null);
+      if (data.sessionId) {
+        setSessionId(data.sessionId);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch logs');
       setLogs([]);
@@ -140,6 +144,17 @@ export function TaskLogs({ planId, taskId, open, onOpenChange }: TaskLogsProps) 
     }
   }, [planId, taskId]);
 
+  // Start polling as fallback
+  const startPolling = useCallback(() => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+
+    pollIntervalRef.current = setInterval(() => {
+      fetchLogs();
+    }, 2000); // Poll every 2 seconds
+  }, [fetchLogs]);
+
   // Start SSE streaming for live updates
   const startStreaming = useCallback(() => {
     if (eventSourceRef.current) {
@@ -148,6 +163,8 @@ export function TaskLogs({ planId, taskId, open, onOpenChange }: TaskLogsProps) 
 
     const params = new URLSearchParams();
     if (taskId) params.set('taskId', taskId);
+    // Use the session ID from the REST fetch if we have it
+    if (sessionId) params.set('sessionId', sessionId);
 
     const url = `/api/plans/${encodeURIComponent(planId)}/logs/stream?${params.toString()}`;
 
@@ -189,18 +206,7 @@ export function TaskLogs({ planId, taskId, open, onOpenChange }: TaskLogsProps) 
       // Fall back to polling
       startPolling();
     }
-  }, [planId, taskId]);
-
-  // Start polling as fallback
-  const startPolling = useCallback(() => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-    }
-
-    pollIntervalRef.current = setInterval(() => {
-      fetchLogs();
-    }, 2000); // Poll every 2 seconds
-  }, [fetchLogs]);
+  }, [planId, taskId, sessionId, startPolling]);
 
   // Stop streaming/polling
   const stopUpdates = useCallback(() => {

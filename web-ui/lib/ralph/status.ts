@@ -8,7 +8,10 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import type { RalphPlan, RalphTask } from './types.js';
+import type { RalphPlan, RalphTask, AcceptanceCriterion } from './types.js';
+
+// Re-export AcceptanceCriterion type for use by other modules
+export type { AcceptanceCriterion };
 
 /**
  * Task status enumeration
@@ -31,6 +34,8 @@ export interface TaskStatusInfo {
   errorMessage?: string;
   commitHash?: string;
   dependenciesMet: boolean;
+  /** Acceptance criteria with completion state from session data */
+  acceptanceCriteria?: AcceptanceCriterion[];
 }
 
 /**
@@ -49,6 +54,10 @@ interface RalphSessionState {
     startedAt?: string;
     completedAt?: string;
     error?: string;
+    result?: {
+      acceptanceCriteriaPassed: string[];
+      acceptanceCriteriaFailed: string[];
+    };
   }>;
   startedAt: string;
   lastActivity: string;
@@ -69,7 +78,8 @@ const SESSIONS_DIR = path.join(RALPH_DIR, 'sessions');
  */
 export async function getTaskStatus(
   plan: RalphPlan,
-  projectPath: string
+  projectPath: string,
+  planPath?: string
 ): Promise<Map<string, TaskStatusInfo>> {
   const statusMap = new Map<string, TaskStatusInfo>();
   const sessionsDir = path.join(projectPath, SESSIONS_DIR);
@@ -85,7 +95,7 @@ export async function getTaskStatus(
 
   try {
     // Read session state if available
-    const sessionState = await readLatestSession(sessionsDir);
+    const sessionState = await readLatestSession(sessionsDir, planPath || '');
 
     if (sessionState) {
       // Update task statuses based on session state
@@ -118,7 +128,7 @@ export async function getTaskStatus(
 /**
  * Read the latest session from the sessions directory
  */
-async function readLatestSession(sessionsDir: string): Promise<RalphSessionState | null> {
+async function readLatestSession(sessionsDir: string, planPath: string): Promise<RalphSessionState | null> {
   try {
     const files = await fs.readdir(sessionsDir);
     const sessionFiles = files
@@ -130,10 +140,23 @@ async function readLatestSession(sessionsDir: string): Promise<RalphSessionState
       return null;
     }
 
-    // Read the most recent session
-    const latestSessionPath = path.join(sessionsDir, sessionFiles[0]);
-    const content = await fs.readFile(latestSessionPath, 'utf-8');
-    return JSON.parse(content) as RalphSessionState;
+    // Find the most recent session that matches the plan path
+    for (const sessionFile of sessionFiles) {
+      const sessionFilePath = path.join(sessionsDir, sessionFile);
+      const content = await fs.readFile(sessionFilePath, 'utf-8');
+      const session = JSON.parse(content) as RalphSessionState;
+
+      // Normalize paths for comparison (handle both relative and absolute paths)
+      const sessionPlanPath = path.resolve(session.planPath);
+      const targetPlanPath = path.resolve(planPath);
+
+      if (sessionPlanPath === targetPlanPath) {
+        return session;
+      }
+    }
+
+    // No matching session found
+    return null;
   } catch {
     return null;
   }
@@ -159,12 +182,20 @@ function determineTaskStatus(
   // Check if task is completed
   if (session.completedTasks.includes(task.id)) {
     const taskHistory = session.taskHistory.find(h => h.taskId === task.id);
+
+    // Merge acceptance criteria from session with plan file
+    const acceptanceCriteria: AcceptanceCriterion[] = task.acceptanceCriteria.map(c => ({
+      text: c.text,
+      completed: c.completed || taskHistory?.result?.acceptanceCriteriaPassed?.includes(c.text) || false
+    }));
+
     return {
       status: 'completed',
       taskId: task.id,
       completedAt: taskHistory?.completedAt,
       startedAt: taskHistory?.startedAt,
       dependenciesMet: true,
+      acceptanceCriteria,
     };
   }
 
@@ -189,11 +220,12 @@ function determineTaskStatus(
     };
   }
 
-  // Task is pending
+  // Task is pending - use acceptance criteria from plan file
   return {
     status: 'pending',
     taskId: task.id,
     dependenciesMet: areDependenciesMet(task, session.completedTasks),
+    acceptanceCriteria: task.acceptanceCriteria,
   };
 }
 
@@ -276,7 +308,8 @@ function areDependenciesMet(task: RalphTask, completedTaskIds: string[]): boolea
  */
 export async function getPlanStatusSummary(
   plan: RalphPlan,
-  projectPath: string
+  projectPath: string,
+  planPath?: string
 ): Promise<{
   total: number;
   completed: number;
@@ -286,7 +319,7 @@ export async function getPlanStatusSummary(
   failed: number;
   percentage: number;
 }> {
-  const statusMap = await getTaskStatus(plan, projectPath);
+  const statusMap = await getTaskStatus(plan, projectPath, planPath);
 
   const summary = {
     total: plan.tasks.length,
@@ -341,9 +374,10 @@ export async function getPlanStatusSummary(
 export async function getTasksByStatus(
   plan: RalphPlan,
   projectPath: string,
-  status: TaskStatus
+  status: TaskStatus,
+  planPath?: string
 ): Promise<RalphTask[]> {
-  const statusMap = await getTaskStatus(plan, projectPath);
+  const statusMap = await getTaskStatus(plan, projectPath, planPath);
 
   return plan.tasks.filter(task => {
     const taskStatus = statusMap.get(task.id);
@@ -368,8 +402,9 @@ export async function isRalphInitialized(projectPath: string): Promise<boolean> 
  * Get the current session information
  */
 export async function getCurrentSession(
-  projectPath: string
+  projectPath: string,
+  planPath?: string,
 ): Promise<RalphSessionState | null> {
   const sessionsDir = path.join(projectPath, SESSIONS_DIR);
-  return readLatestSession(sessionsDir);
+  return readLatestSession(sessionsDir, planPath || '');
 }

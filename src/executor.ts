@@ -23,7 +23,7 @@ import type {
   TaskResult,
   RalphExecutionSession,
 } from './types/index.js';
-import { getNextTask, planFromMarkdown, validateRalphPlan } from './plan-generator.js';
+import { getNextTask, planFromMarkdown, planToMarkdown, validateRalphPlan } from './plan-generator.js';
 import { logEvents, parseStreamJsonLine, type LogEvent, type StatsEvent, type PlanStatusEvent } from './log-events.js';
 
 // Re-export types for the skill to use
@@ -90,6 +90,7 @@ export class RalphExecutor {
       testCommand: 'npm run test:run',
       stateDir: '.ralph/sessions',
       resume: false,
+      skipCompletedTasks: false,
       ...options,
     };
 
@@ -264,11 +265,25 @@ export class RalphExecutor {
       result = await this.executeWithClaude(task, prompt);
 
       // Update execution state
-      taskExecution.status = 'completed';
       taskExecution.completedAt = new Date().toISOString();
       taskExecution.duration = Date.now() - startTime;
       taskExecution.result = result;
 
+      // Update plan file with completed acceptance criteria
+      await this.updatePlanFile(task, result);
+
+      // Check acceptance criteria - task is only complete if ALL criteria pass
+      const allCriteriaPassed = result.acceptanceCriteriaFailed.length === 0;
+
+      if (!allCriteriaPassed) {
+        // Acceptance criteria not fully met - fail the task regardless of strict mode
+        throw new Error(
+          `Acceptance criteria not met (${result.acceptanceCriteriaPassed.length}/${task.acceptanceCriteria.length} passed):\n${result.acceptanceCriteriaFailed.map(f => `  - ${f}`).join('\n')}`
+        );
+      }
+
+      // All criteria passed - mark task as completed and add to completedTasks
+      taskExecution.status = 'completed';
       this.session.completedTasks.add(task.id);
       this.session.lastActivity = new Date().toISOString();
 
@@ -345,7 +360,8 @@ export class RalphExecutor {
       prompt += `## Acceptance Criteria (MUST BE MET)\n\n`;
       prompt += `You must ensure ALL of the following criteria are satisfied by your implementation:\n\n`;
       for (const criterion of task.acceptanceCriteria) {
-        prompt += `- [ ] ${criterion}\n`;
+        const checkbox = criterion.completed ? '[x]' : '[ ]';
+        prompt += `- ${checkbox} ${criterion.text}\n`;
       }
       prompt += `\n`;
     }
@@ -399,7 +415,13 @@ export class RalphExecutor {
 
     // Track initial git state
     const gitInstance = git.simpleGit(this.options.projectRoot);
-    const initialStatus = await gitInstance.status();
+    let initialStatus: Awaited<ReturnType<typeof gitInstance.status>> | null = null;
+    try {
+      initialStatus = await gitInstance.status();
+    } catch (error: any) {
+      console.warn(`  [WARN] Failed to get initial git status for task ${task.id}: ${error.message}`);
+      // Continue without git tracking - task can still succeed
+    }
 
     // Setup logs directory
     const logsDir = path.join(this.options.projectRoot, '.ralph', 'logs');
@@ -602,23 +624,31 @@ Make reasonable assumptions and proceed with implementation.`;
     }
 
     // Get final git state to determine what changed
-    const finalStatus = await gitInstance.status();
+    let finalStatus: Awaited<ReturnType<typeof gitInstance.status>> | null = null;
+    try {
+      finalStatus = await gitInstance.status();
+    } catch (error: any) {
+      console.warn(`  [WARN] Failed to get final git status for task ${task.id}: ${error.message}`);
+      // Continue - task result won't include file change details
+    }
 
     // Calculate file changes
     const filesAdded: string[] = [];
     const filesModified: string[] = [];
     const filesDeleted: string[] = [];
 
-    // Files that are now staged but weren't before
-    for (const file of finalStatus.files) {
-      const wasTracked = initialStatus.files.some(f => f.path === file.path);
+    if (finalStatus) {
+      // Files that are now staged but weren't before
+      for (const file of finalStatus.files) {
+        const wasTracked = initialStatus?.files.some(f => f.path === file.path) ?? false;
 
-      if (!wasTracked && (file.index === 'A' || file.index === '?')) {
-        filesAdded.push(file.path);
-      } else if (file.index === 'D') {
-        filesDeleted.push(file.path);
-      } else if (file.index === 'M' || file.working_dir === 'M') {
-        filesModified.push(file.path);
+        if (!wasTracked && (file.index === 'A' || file.index === '?')) {
+          filesAdded.push(file.path);
+        } else if (file.index === 'D') {
+          filesDeleted.push(file.path);
+        } else if (file.index === 'M' || file.working_dir === 'M') {
+          filesModified.push(file.path);
+        }
       }
     }
 
@@ -638,13 +668,6 @@ Make reasonable assumptions and proceed with implementation.`;
       totalTurns,
     };
 
-    // Fail the task if acceptance criteria are required but not met
-    if (this.options.requireAcceptanceCriteria && verification.failed.length > 0) {
-      throw new Error(
-        `Acceptance criteria not met:\n${verification.failed.map(f => `  - ${f}`).join('\n')}`
-      );
-    }
-
     return result;
   }
 
@@ -657,20 +680,53 @@ Make reasonable assumptions and proceed with implementation.`;
 
     const commitMessage = this.buildCommitMessage(task, result);
 
-    // Stage all changes
-    await gitInstance.add([
+    // Stage all changes - handle errors gracefully
+    // Filter out .ralph/ files - they should never be committed
+    const filesToStage = [
       ...result.filesAdded,
       ...result.filesModified,
       ...result.filesDeleted.map(f => `:${f}`), // : prefix removes files
-    ].filter(Boolean));
+    ]
+      .filter(Boolean)
+      .filter(file => !file.startsWith('.ralph/') && !file.startsWith(':.ralph/'));
+
+    if (filesToStage.length === 0) {
+      console.warn(`  [WARN] No files to stage for task ${task.id}, skipping commit`);
+      return;
+    }
+
+    try {
+      await gitInstance.add(filesToStage);
+    } catch (error: any) {
+      // Log error but don't fail the task
+      console.warn(`  [WARN] Failed to stage files for task ${task.id}: ${error.message}`);
+      // Continue anyway - changes might already be staged
+    }
 
     // Commit with the formatted message
-    await gitInstance.commit(commitMessage);
+    try {
+      await gitInstance.commit(commitMessage);
+    } catch (error: any) {
+      // Check if it's an "empty commit" type error
+      const errorMsg = error.message || String(error);
+      if (errorMsg.includes('nothing to commit') || errorMsg.includes('no changes added')) {
+        console.warn(`  [WARN] No changes to commit for task ${task.id}`);
+        return;
+      }
+      // For other errors, log but don't fail the task
+      console.warn(`  [WARN] Failed to commit for task ${task.id}: ${errorMsg}`);
+      return;
+    }
 
     // Get the commit hash
-    const log = await gitInstance.log({ maxCount: 1 });
-    if (log.latest) {
-      result.commitHash = log.latest.hash;
+    try {
+      const log = await gitInstance.log({ maxCount: 1 });
+      if (log.latest) {
+        result.commitHash = log.latest.hash;
+      }
+    } catch (error: any) {
+      // Non-fatal - just warn
+      console.warn(`  [WARN] Failed to get commit hash for task ${task.id}: ${error.message}`);
     }
   }
 
@@ -693,6 +749,53 @@ Make reasonable assumptions and proceed with implementation.`;
     }
 
     return message;
+  }
+
+  /**
+   * Update plan file with completed acceptance criteria and task status
+   */
+  private async updatePlanFile(task: RalphTask, result: TaskResult): Promise<void> {
+    try {
+      // Read the current plan
+      const planContent = await fs.readFile(this.options.planPath!, 'utf-8');
+      const plan = planFromMarkdown(planContent);
+
+      // Find the task in the plan
+      const taskIndex = plan.tasks.findIndex(t => t.id === task.id);
+      if (taskIndex === -1) {
+        console.warn(`  [WARN] Task ${task.id} not found in plan file, skipping update`);
+        return;
+      }
+
+      // Update the task's acceptance criteria based on passed criteria
+      const updatedTask = { ...plan.tasks[taskIndex] };
+      updatedTask.acceptanceCriteria = task.acceptanceCriteria.map(criterion => ({
+        text: criterion.text,
+        completed: result.acceptanceCriteriaPassed.includes(criterion.text)
+      }));
+
+      // Update task status based on acceptance criteria results
+      if (result.acceptanceCriteriaFailed.length === 0) {
+        // All criteria passed - mark as Implemented
+        updatedTask.status = 'Implemented';
+      } else if (result.acceptanceCriteriaPassed.length > 0) {
+        // Some criteria passed but not all - mark as Needs Re-Work
+        updatedTask.status = 'Needs Re-Work';
+      }
+      // If no criteria passed, leave status as-is (typically "To Do")
+
+      // Replace the task in the plan
+      plan.tasks[taskIndex] = updatedTask;
+
+      // Write the updated plan back to the file
+      const updatedPlanContent = planToMarkdown(plan);
+      await fs.writeFile(this.options.planPath!, updatedPlanContent, 'utf-8');
+
+      console.log(`  [INFO] Updated plan file: marked task ${task.id} as ${updatedTask.status} with ${result.acceptanceCriteriaPassed.length}/${task.acceptanceCriteria.length} acceptance criteria completed`);
+    } catch (error: any) {
+      console.error(`  [ERROR] Failed to update plan file for task ${task.id}: ${error.message}`);
+      // Don't fail the task - plan file update is non-critical
+    }
   }
 
   /**
@@ -747,6 +850,20 @@ Make reasonable assumptions and proceed with implementation.`;
     await this.loadPlan();
     console.log(`Loaded plan with ${this.plan.totalTasks} tasks`);
 
+    // Pre-populate completed tasks from plan file status if skipCompletedTasks is enabled
+    if (this.options.skipCompletedTasks) {
+      let skippedCount = 0;
+      for (const task of this.plan.tasks) {
+        if (task.status === 'Implemented' || task.status === 'Verified') {
+          this.session.completedTasks.add(task.id);
+          skippedCount++;
+        }
+      }
+      if (skippedCount > 0) {
+        console.log(`Skipping ${skippedCount} already completed tasks`);
+      }
+    }
+
     // Load previous session if resuming
     if (this.options.resume) {
       const sessions = await fs.readdir(this.options.stateDir!);
@@ -770,6 +887,8 @@ Make reasonable assumptions and proceed with implementation.`;
 
     // Main execution loop
     let task: RalphTask | null = this.getNextTask();
+    console.log(`[DEBUG] Initial next task: ${task ? task.id : 'null'}`);
+
 
     while (task !== null) {
       const taskId = task.id; // Store ID for error handling
@@ -822,6 +941,8 @@ Make reasonable assumptions and proceed with implementation.`;
 
       // Get next task
       task = this.getNextTask();
+      console.log(`[DEBUG] Next task in loop: ${task ? task.id : 'null'}`);
+
     }
 
     // Execution complete
@@ -900,12 +1021,12 @@ export async function verifyAcceptanceCriteria(
   for (const criterion of task.acceptanceCriteria) {
     // Placeholder verification logic
     // In practice, this would parse the criterion and verify accordingly
-    const isVerified = await verifyCriterion(criterion, projectRoot);
+    const isVerified = await verifyCriterion(criterion.text, projectRoot);
 
     if (isVerified) {
-      passed.push(criterion);
+      passed.push(criterion.text);
     } else {
-      failed.push(criterion);
+      failed.push(criterion.text);
     }
   }
 
@@ -1008,8 +1129,10 @@ ${criterion}
     const args: string[] = [
       '--output-format', 'stream-json',
       '--print',
+      '--verbose',
       '--dangerously-skip-permissions',
-      '--max-turns', '20',
+      '--max-turns', '100',
+      '--model', 'haiku',
     ];
 
     const systemPromptAppend = `

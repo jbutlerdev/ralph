@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { loadPlan, validateRalphPlan, type RalphTask } from '../../../../lib/plan-utils';
+import { loadPlan, validateRalphPlan, type RalphPlan, type RalphTask } from '../../../../lib/plan-utils';
 import { planToMarkdown } from '../../../../lib/ralph/parser';
 import { getTaskStatus, getPlanStatusSummary, getCurrentSession, type TaskStatus as RuntimeTaskStatus } from '../../../../lib/ralph/status';
 import path from 'path';
@@ -58,6 +58,92 @@ export async function GET(request: Request, context: RouteContext) {
     }
 
     const data = await response.json();
+    const projectRoot = data.plan.projectRoot;
+
+    // Calculate runtime status from .ralph/sessions if we have a projectRoot
+    let tasksWithRuntimeStatus = data.plan.tasks;
+    let runtimeStatusSummary: {
+      completedTasks: number;
+      inProgressTasks: number;
+      failedTasks: number;
+      blockedTasks: number;
+      pendingTasks: number;
+      progress: number;
+      sessionId: string | null;
+    } = {
+      completedTasks: 0,
+      inProgressTasks: 0,
+      failedTasks: 0,
+      blockedTasks: 0,
+      pendingTasks: data.plan.tasks?.length || 0,
+      progress: 0,
+      sessionId: null,
+    };
+
+    if (projectRoot) {
+      try {
+        // Load the plan with proper parsing to get task objects
+        const plan: RalphPlan = {
+          projectName: data.plan.projectName,
+          description: data.plan.description || '',
+          overview: data.plan.overview || '',
+          tasks: data.plan.tasks,
+          totalTasks: data.plan.totalTasks || data.plan.tasks?.length || 0,
+          generatedAt: data.plan.generatedAt || '',
+          estimatedDuration: data.plan.estimatedDuration || '',
+        };
+
+        const planPath = data.plan.planPath;
+        if (!projectRoot || !planPath) {
+          // Fallback to defaults if no project root
+          return NextResponse.json({
+            success: true,
+            plan: {
+              id,
+              ...data.plan,
+              runtimeStatus: {
+                completedTasks: 0,
+                inProgressTasks: 0,
+                failedTasks: 0,
+                blockedTasks: 0,
+                pendingTasks: data.plan.tasks?.length || 0,
+                progress: 0,
+                sessionId: null,
+              },
+            },
+          }, { status: 200, headers: getCorsHeaders() });
+        }
+        // Calculate runtime status from session files
+        const taskStatusMap = await getTaskStatus(plan, projectRoot, planPath);
+        const statusSummary = await getPlanStatusSummary(plan, projectRoot, planPath);
+        const currentSession = await getCurrentSession(projectRoot, planPath);
+
+        // Attach runtime status and acceptance criteria to each task
+        tasksWithRuntimeStatus = plan.tasks.map(task => {
+          const statusInfo = taskStatusMap.get(task.id);
+          return {
+            ...task,
+            runtimeStatus: (statusInfo?.status || 'pending') as RuntimeTaskStatus,
+            // Use acceptance criteria from status info (includes session data)
+            acceptanceCriteria: statusInfo?.acceptanceCriteria || task.acceptanceCriteria,
+          };
+        });
+
+        // Build runtime status summary
+        runtimeStatusSummary = {
+          completedTasks: statusSummary.completed,
+          inProgressTasks: statusSummary.inProgress,
+          failedTasks: statusSummary.failed,
+          blockedTasks: statusSummary.blocked,
+          pendingTasks: statusSummary.pending,
+          progress: statusSummary.percentage,
+          sessionId: currentSession?.sessionId ?? null,
+        };
+      } catch (error) {
+        console.error('Error calculating runtime status:', error);
+        // Fall back to default values if calculation fails
+      }
+    }
 
     // Transform to match our expected format
     return NextResponse.json(
@@ -68,10 +154,7 @@ export async function GET(request: Request, context: RouteContext) {
           name: data.plan.projectName,
           description: data.plan.description || 'No description',
           overview: data.plan.overview || '',
-          tasks: data.plan.tasks.map((task: any) => ({
-            ...task,
-            runtimeStatus: task.runtimeStatus || 'pending',
-          })),
+          tasks: tasksWithRuntimeStatus,
           metadata: {
             totalTasks: data.plan.totalTasks || data.plan.tasks?.length || 0,
             generatedAt: data.plan.generatedAt || '',
@@ -82,15 +165,7 @@ export async function GET(request: Request, context: RouteContext) {
             warnings: [],
           },
           projectRoot: data.plan.projectRoot,
-          runtimeStatus: data.plan.runtimeStatus || {
-            completedTasks: 0,
-            inProgressTasks: 0,
-            failedTasks: 0,
-            blockedTasks: 0,
-            pendingTasks: data.plan.tasks?.length || 0,
-            progress: 0,
-            sessionId: null,
-          },
+          runtimeStatus: runtimeStatusSummary,
         },
       },
       {
@@ -140,7 +215,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       );
     }
 
-    const { taskId, status, updateType, metadata } = body;
+    const { taskId, status, updateType, metadata, criterionIndex, criterionCompleted } = body;
 
     // Handle metadata updates (project name and description)
     if (updateType === 'metadata') {
@@ -180,11 +255,12 @@ export async function PATCH(request: Request, context: RouteContext) {
 
       const serverData = await serverResponse.json();
       const projectRoot = serverData.plan.projectRoot;
-      if (!projectRoot) {
+      const planPath = serverData.plan.planPath;
+      if (!projectRoot || !planPath) {
         return NextResponse.json(
           {
             success: false,
-            error: 'Plan does not have a projectRoot',
+            error: 'Plan does not have a projectRoot or planPath',
           },
           {
             status: 400,
@@ -192,8 +268,6 @@ export async function PATCH(request: Request, context: RouteContext) {
           }
         );
       }
-
-      const planPath = path.join(projectRoot, 'plans', id, 'IMPLEMENTATION_PLAN.md');
 
       // Read current plan file
       let content = await readFile(planPath, 'utf-8');
@@ -250,6 +324,187 @@ export async function PATCH(request: Request, context: RouteContext) {
       );
     }
 
+    // Handle acceptance criteria toggle
+    if (updateType === 'acceptanceCriteria') {
+      if (!taskId) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Task ID is required',
+          },
+          {
+            status: 400,
+            headers: getCorsHeaders({ allowMethods: 'GET, PATCH, OPTIONS' }),
+          }
+        );
+      }
+
+      if (typeof criterionIndex !== 'number' || criterionIndex < 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Criterion index is required and must be a non-negative number',
+          },
+          {
+            status: 400,
+            headers: getCorsHeaders({ allowMethods: 'GET, PATCH, OPTIONS' }),
+          }
+        );
+      }
+
+      // Fetch plan from Ralph server to get correct projectRoot
+      const serverResponse = await fetch(`${RALPH_SERVER_URL}/plans/${id}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!serverResponse.ok) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Failed to fetch plan from Ralph server',
+          },
+          { status: serverResponse.status, headers: getCorsHeaders({ allowMethods: 'GET, PATCH, OPTIONS' }) }
+        );
+      }
+
+      const serverData = await serverResponse.json();
+      const projectRoot = serverData.plan.projectRoot;
+      const planPath = serverData.plan.planPath;
+      if (!projectRoot || !planPath) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Plan does not have a projectRoot or planPath',
+          },
+          {
+            status: 400,
+            headers: getCorsHeaders({ allowMethods: 'GET, PATCH, OPTIONS' }),
+          }
+        );
+      }
+
+      // Read plan
+      const plan = await loadPlan(planPath, projectRoot);
+      const taskIndex = plan.tasks.findIndex(t => t.id === taskId);
+
+      if (taskIndex === -1) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Task not found',
+          },
+          {
+            status: 404,
+            headers: getCorsHeaders({ allowMethods: 'GET, PATCH, OPTIONS' }),
+          }
+        );
+      }
+
+      // Update acceptance criterion completion state
+      const task = plan.tasks[taskIndex];
+      if (criterionIndex >= task.acceptanceCriteria.length) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Criterion index ${criterionIndex} out of bounds (max: ${task.acceptanceCriteria.length - 1})`,
+          },
+          {
+            status: 400,
+            headers: getCorsHeaders({ allowMethods: 'GET, PATCH, OPTIONS' }),
+          }
+        );
+      }
+
+      // Update the completion state - treat criterion as object with text and completed
+      const criteria = Array.isArray(task.acceptanceCriteria) ? [...task.acceptanceCriteria] : [];
+      const criterion = criteria[criterionIndex];
+      if (typeof criterion === 'object' && criterion !== null && 'completed' in criterion) {
+        criteria[criterionIndex] = { ...criterion, completed: criterionCompleted ?? !criterion.completed };
+      } else {
+        // Legacy string format - convert to object
+        criteria[criterionIndex] = {
+          text: String(criterion),
+          completed: criterionCompleted ?? false
+        };
+      }
+      plan.tasks[taskIndex] = {
+        ...task,
+        acceptanceCriteria: criteria,
+      };
+
+      // Validate and write
+      const validation = validateRalphPlan(plan);
+      if (!validation.valid) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Invalid plan after update',
+            validationErrors: validation.errors,
+            warnings: validation.warnings,
+          },
+          {
+            status: 400,
+            headers: getCorsHeaders({ allowMethods: 'GET, PATCH, OPTIONS' }),
+          }
+        );
+      }
+
+      const markdown = planToMarkdown(plan);
+      await writeFile(planPath, markdown, 'utf-8');
+
+      // Get runtime status and return
+      const taskStatusMap = await getTaskStatus(plan, projectRoot, planPath);
+      const statusSummary = await getPlanStatusSummary(plan, projectRoot, planPath);
+      const currentSession = await getCurrentSession(projectRoot, planPath);
+
+      const tasksWithStatus = plan.tasks.map(task => {
+        const statusInfo = taskStatusMap.get(task.id);
+        return {
+          ...task,
+          runtimeStatus: (statusInfo?.status || 'pending') as RuntimeTaskStatus,
+          acceptanceCriteria: statusInfo?.acceptanceCriteria || task.acceptanceCriteria,
+        };
+      });
+
+      return NextResponse.json(
+        {
+          success: true,
+          plan: {
+            id,
+            name: plan.projectName,
+            description: plan.description,
+            overview: plan.overview,
+            tasks: tasksWithStatus,
+            metadata: {
+              totalTasks: plan.totalTasks,
+              generatedAt: plan.generatedAt,
+              estimatedDuration: plan.estimatedDuration,
+            },
+            validation: {
+              valid: validation.valid,
+              warnings: validation.warnings,
+            },
+            runtimeStatus: {
+              completedTasks: statusSummary.completed,
+              inProgressTasks: statusSummary.inProgress,
+              failedTasks: statusSummary.failed,
+              blockedTasks: statusSummary.blocked,
+              pendingTasks: statusSummary.pending,
+              progress: statusSummary.percentage,
+              sessionId: currentSession?.sessionId ?? null,
+            },
+          },
+        },
+        {
+          status: 200,
+          headers: getCorsHeaders({ allowMethods: 'GET, PATCH, OPTIONS' }),
+        }
+      );
+    }
+
     // Handle task status updates (existing behavior)
     if (!taskId) {
       return NextResponse.json(
@@ -299,11 +554,12 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     const serverData = await serverResponse.json();
     const projectRoot = serverData.plan.projectRoot;
-    if (!projectRoot) {
+    const planPath = serverData.plan.planPath;
+    if (!projectRoot || !planPath) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Plan does not have a projectRoot',
+          error: 'Plan does not have a projectRoot or planPath',
         },
         {
           status: 400,
@@ -311,8 +567,6 @@ export async function PATCH(request: Request, context: RouteContext) {
         }
       );
     }
-
-    const planPath = path.join(projectRoot, 'plans', id, 'IMPLEMENTATION_PLAN.md');
 
     // Read the plan
     const plan = await loadPlan(planPath, projectRoot);
@@ -358,9 +612,9 @@ export async function PATCH(request: Request, context: RouteContext) {
     await writeFile(planPath, markdown, 'utf-8');
 
     // Get runtime status
-    const taskStatusMap = await getTaskStatus(plan, projectRoot);
-    const statusSummary = await getPlanStatusSummary(plan, projectRoot);
-    const currentSession = await getCurrentSession(projectRoot);
+    const taskStatusMap = await getTaskStatus(plan, projectRoot, planPath);
+    const statusSummary = await getPlanStatusSummary(plan, projectRoot, planPath);
+    const currentSession = await getCurrentSession(projectRoot, planPath);
 
     // Return updated plan
     const tasksWithStatus = plan.tasks.map(task => {
@@ -368,6 +622,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       return {
         ...task,
         runtimeStatus: (statusInfo?.status || 'pending') as RuntimeTaskStatus,
+        acceptanceCriteria: statusInfo?.acceptanceCriteria || task.acceptanceCriteria,
       };
     });
 
@@ -396,7 +651,7 @@ export async function PATCH(request: Request, context: RouteContext) {
             blockedTasks: statusSummary.blocked,
             pendingTasks: statusSummary.pending,
             progress: statusSummary.percentage,
-            sessionId: currentSession?.sessionId,
+            sessionId: currentSession?.sessionId ?? null,
           },
         },
       },
@@ -511,11 +766,12 @@ export async function PUT(request: Request, context: RouteContext) {
 
     const serverData = await serverResponse.json();
     const projectRoot = serverData.plan.projectRoot;
-    if (!projectRoot) {
+    const planPath = serverData.plan.planPath;
+    if (!projectRoot || !planPath) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Plan does not have a projectRoot',
+          error: 'Plan does not have a projectRoot or planPath',
         },
         {
           status: 400,
@@ -523,8 +779,6 @@ export async function PUT(request: Request, context: RouteContext) {
         }
       );
     }
-
-    const planPath = path.join(projectRoot, 'plans', id, 'IMPLEMENTATION_PLAN.md');
 
     // Read the plan
     const plan = await loadPlan(planPath, projectRoot);
@@ -573,9 +827,9 @@ export async function PUT(request: Request, context: RouteContext) {
     await writeFile(planPath, markdown, 'utf-8');
 
     // Get runtime status
-    const taskStatusMap = await getTaskStatus(plan, projectRoot);
-    const statusSummary = await getPlanStatusSummary(plan, projectRoot);
-    const currentSession = await getCurrentSession(projectRoot);
+    const taskStatusMap = await getTaskStatus(plan, projectRoot, planPath);
+    const statusSummary = await getPlanStatusSummary(plan, projectRoot, planPath);
+    const currentSession = await getCurrentSession(projectRoot, planPath);
 
     // Return updated plan
     const tasksWithStatus = plan.tasks.map(task => {
@@ -583,6 +837,7 @@ export async function PUT(request: Request, context: RouteContext) {
       return {
         ...task,
         runtimeStatus: (statusInfo?.status || 'pending') as RuntimeTaskStatus,
+        acceptanceCriteria: statusInfo?.acceptanceCriteria || task.acceptanceCriteria,
       };
     });
 
@@ -611,7 +866,7 @@ export async function PUT(request: Request, context: RouteContext) {
             blockedTasks: statusSummary.blocked,
             pendingTasks: statusSummary.pending,
             progress: statusSummary.percentage,
-            sessionId: currentSession?.sessionId,
+            sessionId: currentSession?.sessionId ?? null,
           },
         },
       },
@@ -696,11 +951,12 @@ export async function DELETE(request: Request, context: RouteContext) {
 
     const serverData = await serverResponse.json();
     const projectRoot = serverData.plan.projectRoot;
-    if (!projectRoot) {
+    const planPath = serverData.plan.planPath;
+    if (!projectRoot || !planPath) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Plan does not have a projectRoot',
+          error: 'Plan does not have a projectRoot or planPath',
         },
         {
           status: 400,
@@ -708,8 +964,6 @@ export async function DELETE(request: Request, context: RouteContext) {
         }
       );
     }
-
-    const planPath = path.join(projectRoot, 'plans', id, 'IMPLEMENTATION_PLAN.md');
 
     // Read the plan
     const plan = await loadPlan(planPath, projectRoot);
@@ -770,9 +1024,9 @@ export async function DELETE(request: Request, context: RouteContext) {
     await writeFile(planPath, markdown, 'utf-8');
 
     // Get runtime status
-    const taskStatusMap = await getTaskStatus(plan, projectRoot);
-    const statusSummary = await getPlanStatusSummary(plan, projectRoot);
-    const currentSession = await getCurrentSession(projectRoot);
+    const taskStatusMap = await getTaskStatus(plan, projectRoot, planPath);
+    const statusSummary = await getPlanStatusSummary(plan, projectRoot, planPath);
+    const currentSession = await getCurrentSession(projectRoot, planPath);
 
     // Return updated plan
     const tasksWithStatus = plan.tasks.map(task => {
@@ -780,6 +1034,7 @@ export async function DELETE(request: Request, context: RouteContext) {
       return {
         ...task,
         runtimeStatus: (statusInfo?.status || 'pending') as RuntimeTaskStatus,
+        acceptanceCriteria: statusInfo?.acceptanceCriteria || task.acceptanceCriteria,
       };
     });
 
@@ -808,7 +1063,7 @@ export async function DELETE(request: Request, context: RouteContext) {
             blockedTasks: statusSummary.blocked,
             pendingTasks: statusSummary.pending,
             progress: statusSummary.percentage,
-            sessionId: currentSession?.sessionId,
+            sessionId: currentSession?.sessionId ?? null,
           },
         },
       },

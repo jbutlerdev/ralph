@@ -2,7 +2,7 @@
 
 import { CheckCircle2, Circle, AlertTriangle, Link as LinkIcon, ChevronRight, XCircle, Check, Star, Terminal } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { RalphTask } from '@/lib/plan-utils';
+import type { RalphTask } from '@/lib/ralph/types';
 import type { RuntimeTaskStatus } from './PlanDetail';
 
 export interface TaskItemProps {
@@ -221,17 +221,37 @@ export function TaskItem({
         <div className="mt-2 sm:mt-3 pl-6 sm:pl-7">
           <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1.5 sm:mb-2">
             Acceptance Criteria
+            <span className="ml-1.5 text-[10px] sm:text-xs text-muted-foreground">
+              (
+                {task.acceptanceCriteria.filter(c => typeof c === 'object' ? c.completed : false).length}
+                /{task.acceptanceCriteria.length}
+              )
+            </span>
           </p>
           <ul className="space-y-1">
-            {task.acceptanceCriteria.map((criterion, idx) => (
-              <li
-                key={idx}
-                className="flex items-start gap-1.5 sm:gap-2 text-xs sm:text-sm text-muted-foreground"
-              >
-                <Circle className="h-2.5 w-2.5 sm:h-3 sm:w-3 mt-0.5 sm:mt-1 flex-shrink-0 fill-muted-foreground/20" />
-                <span className="text-[10px] sm:text-sm">{criterion}</span>
-              </li>
-            ))}
+            {task.acceptanceCriteria.map((criterion, idx) => {
+              const criterionText = typeof criterion === 'object' ? criterion.text : criterion;
+              const isCompleted = typeof criterion === 'object' ? criterion.completed : false;
+
+              return (
+                <li
+                  key={idx}
+                  className="flex items-start gap-1.5 sm:gap-2 text-xs sm:text-sm text-muted-foreground"
+                >
+                  {isCompleted ? (
+                    <Check className="h-2.5 w-2.5 sm:h-3 sm:w-3 mt-0.5 sm:mt-1 flex-shrink-0 text-green-600 dark:text-green-400" />
+                  ) : (
+                    <Circle className="h-2.5 w-2.5 sm:h-3 sm:w-3 mt-0.5 sm:mt-1 flex-shrink-0 fill-muted-foreground/20" />
+                  )}
+                  <span className={cn(
+                    'text-[10px] sm:text-sm',
+                    isCompleted && 'line-through text-muted-foreground'
+                  )}>
+                    {criterionText}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

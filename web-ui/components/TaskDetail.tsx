@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import type { AcceptanceCriterion } from '@/lib/ralph/types';
 import {
   Dialog,
   DialogContent,
@@ -22,9 +23,10 @@ import {
   Check,
   Network,
   Terminal,
+  Square,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { RalphTask } from '@/lib/plan-utils';
+import type { RalphTask } from '@/lib/ralph/types';
 
 export interface TaskDetailProps {
   task: RalphTask;
@@ -33,8 +35,7 @@ export interface TaskDetailProps {
   planTasks?: RalphTask[]; // Optional: all tasks in the plan for dependency graph
   onNavigateToTask?: (taskId: string) => void; // Callback for task navigation
   taskStatus?: 'pending' | 'in_progress' | 'completed' | 'failed'; // Optional task status
-  completedCriteria?: string[]; // Optional list of completed acceptance criteria IDs
-  planId?: string; // Plan ID for fetching logs
+  planId?: string; // Plan ID for fetching logs and toggling criteria
   onOpenLogs?: () => void; // Callback to open logs modal
 }
 
@@ -58,10 +59,46 @@ export function TaskDetail({
   planTasks = [],
   onNavigateToTask,
   taskStatus = 'pending',
-  completedCriteria = [],
   planId,
   onOpenLogs,
 }: TaskDetailProps) {
+  const [togglingCriterion, setTogglingCriterion] = useState<number | null>(null);
+
+  // Calculate completed criteria count from task's acceptance criteria
+  const completedCount = task.acceptanceCriteria.filter(c => c.completed).length;
+
+  // Toggle acceptance criterion
+  const handleToggleCriterion = async (index: number) => {
+    if (!planId || togglingCriterion !== null) return;
+
+    setTogglingCriterion(index);
+    try {
+      const response = await fetch(`/api/plans/${planId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          taskId: task.id,
+          updateType: 'acceptanceCriteria',
+          criterionIndex: index,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to toggle acceptance criterion');
+      }
+
+      // Refresh would be handled by parent component
+      onOpenChange(false);
+    } catch (error) {
+      console.error('Failed to toggle acceptance criterion:', error);
+      alert(error instanceof Error ? error.message : 'Failed to toggle acceptance criterion');
+    } finally {
+      setTogglingCriterion(null);
+    }
+  };
   const getPriorityColor = (priority: RalphTask['priority']) => {
     switch (priority) {
       case 'high':
@@ -238,7 +275,7 @@ export function TaskDetail({
                 <ListChecks className="h-4 w-4" />
                 Acceptance Criteria
                 <span className="ml-1 text-xs font-normal text-muted-foreground">
-                  ({task.acceptanceCriteria.length} items, {completedCriteria.length} completed)
+                  ({task.acceptanceCriteria.length} items, {completedCount} completed)
                 </span>
               </h3>
               <ul
@@ -247,7 +284,11 @@ export function TaskDetail({
                 aria-label="Acceptance criteria list"
               >
                 {task.acceptanceCriteria.map((criterion, idx) => {
-                  const isCompleted = completedCriteria.includes(criterion);
+                  // Handle both object format {text, completed} and legacy string format
+                  const criterionText = typeof criterion === 'object' ? criterion.text : criterion;
+                  const isCompleted = typeof criterion === 'object' ? criterion.completed : false;
+                  const isToggling = togglingCriterion === idx;
+
                   return (
                     <li
                       key={idx}
@@ -257,22 +298,31 @@ export function TaskDetail({
                       )}
                       role="listitem"
                     >
-                      <div className="mt-0.5 flex-shrink-0">
+                      <button
+                        onClick={() => handleToggleCriterion(idx)}
+                        disabled={isToggling || !planId}
+                        className={cn(
+                          'mt-0.5 flex-shrink-0 transition-all',
+                          planId && 'cursor-pointer hover:scale-110',
+                          isToggling && 'opacity-50 cursor-not-allowed'
+                        )}
+                        aria-label={isCompleted ? `Mark "${criterionText}" as incomplete` : `Mark "${criterionText}" as complete`}
+                      >
                         {isCompleted ? (
-                          <div className="flex items-center justify-center w-4 h-4 rounded bg-green-500 text-white">
+                          <div className="flex items-center justify-center w-5 h-5 rounded bg-green-500 text-white">
                             <Check className="h-3 w-3" aria-hidden="true" />
                           </div>
                         ) : (
-                          <div className="flex items-center justify-center w-4 h-4 rounded border-2 border-muted-foreground">
+                          <div className="flex items-center justify-center w-5 h-5 rounded border-2 border-muted-foreground hover:border-green-500">
                             <div className="w-2 h-2" aria-hidden="true" />
                           </div>
                         )}
-                      </div>
+                      </button>
                       <span className={cn(
                         'flex-1 leading-relaxed',
                         isCompleted ? 'line-through text-muted-foreground' : 'text-foreground'
                       )}>
-                        {criterion}
+                        {criterionText}
                       </span>
                       <span className={cn(
                         'text-xs font-medium px-2 py-0.5 rounded',

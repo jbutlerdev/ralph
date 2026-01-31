@@ -10,6 +10,14 @@
 export type TaskStatus = 'To Do' | 'In Progress' | 'Implemented' | 'Needs Re-Work' | 'Verified';
 
 /**
+ * Individual acceptance criterion with its completion state
+ */
+export interface AcceptanceCriterion {
+  text: string;
+  completed: boolean;
+}
+
+/**
  * A single task in a Ralph implementation plan
  */
 export interface RalphTask {
@@ -18,7 +26,7 @@ export interface RalphTask {
   description: string;            // Detailed description of what to implement
   priority: 'high' | 'medium' | 'low';
   dependencies: string[];         // Array of task IDs that must complete first
-  acceptanceCriteria: string[];   // Array of checkboxes for completion verification
+  acceptanceCriteria: AcceptanceCriterion[];   // Array of checkboxes for completion verification
   specReference?: string;         // Optional path to spec file
   estimatedComplexity?: 1 | 2 | 3 | 4 | 5; // 1=trivial, 5=complex
   tags?: string[];                // Optional tags for filtering/grouping
@@ -148,6 +156,12 @@ export interface RalphExecutorOptions {
   resume?: boolean;
 
   /**
+   * Whether to skip tasks that are already implemented/verified in the plan file
+   * Used for restart to skip completed tasks
+   */
+  skipCompletedTasks?: boolean;
+
+  /**
    * Claude Code SDK options
    */
   claudeOptions?: {
@@ -189,6 +203,7 @@ export interface ExecutionRequest {
   plan?: string;
   directory?: string;
   resume?: boolean;
+  skipCompletedTasks?: boolean;
   noCommit?: boolean;
   autoTest?: boolean;
   dryRun?: boolean;

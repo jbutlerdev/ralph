@@ -5,7 +5,7 @@
  */
 
 import * as path from 'node:path';
-import type { RalphPlan, RalphTask, TaskStatus } from './types.js';
+import type { RalphPlan, RalphTask, TaskStatus, AcceptanceCriterion } from './types.js';
 
 const VALID_STATUSES: TaskStatus[] = ['To Do', 'In Progress', 'Implemented', 'Needs Re-Work', 'Verified'];
 const DEFAULT_STATUS: TaskStatus = 'To Do';
@@ -54,7 +54,7 @@ export function planFromMarkdown(markdown: string, projectDir?: string): RalphPl
       currentTask = {
         title: taskHeaderMatch[2],
         dependencies: [],
-        acceptanceCriteria: [],
+        acceptanceCriteria: [] as AcceptanceCriterion[],
         status: DEFAULT_STATUS,
       };
       continue;
@@ -115,10 +115,14 @@ export function planFromMarkdown(markdown: string, projectDir?: string): RalphPl
       continue;
     }
 
-    // Parse acceptance criteria checkboxes
-    const criteriaMatch = line.match(/^-\s+\[\s*\]\s*(.+)/);
+    // Parse acceptance criteria checkboxes (both [x] for checked and [ ] for unchecked)
+    const criteriaMatch = line.match(/^-\s+\[([ x])\]\s*(.+)/i);
     if (criteriaMatch) {
-      currentTask.acceptanceCriteria?.push(criteriaMatch[1]);
+      const isChecked = criteriaMatch[1].toLowerCase() === 'x';
+      (currentTask.acceptanceCriteria as AcceptanceCriterion[]).push({
+        text: criteriaMatch[2],
+        completed: isChecked
+      });
       continue;
     }
 
@@ -420,7 +424,8 @@ export function planToMarkdown(plan: RalphPlan): string {
     lines.push(`**Acceptance Criteria:**`);
     if (task.acceptanceCriteria.length > 0) {
       task.acceptanceCriteria.forEach((criterion) => {
-        lines.push(`- [ ] ${criterion}`);
+        const checkbox = criterion.completed ? '[x]' : '[ ]';
+        lines.push(`- ${checkbox} ${criterion.text}`);
       });
     } else {
       lines.push(`- [ ] No acceptance criteria defined`);

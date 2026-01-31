@@ -13,7 +13,7 @@
 import { program } from 'commander';
 import { RalphExecutor, runRalphExecution, RalphExecutorOptions } from './executor.js';
 import { loadPlan, listAllPlans, planFromMarkdown, validateRalphPlan, sortTasksByDependencies } from './plan-generator.js';
-import { initRegistry } from './registry.js';
+import { initRegistry, getRegistry } from './registry.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { startServer, ServerConfig } from './server.js';
@@ -273,18 +273,32 @@ async function main() {
  * Execute a Ralph implementation plan
  */
 async function executePlan(planArg: string | undefined, options: CliOptions) {
-  const projectRoot = path.resolve(options.directory || process.cwd());
+  // Initialize registry to look up plan by ID
+  await initRegistry();
+  const registry = getRegistry();
 
-  // Resolve plan path
+  let projectRoot = path.resolve(options.directory || process.cwd());
   let planPath = options.plan;
 
   if (planArg) {
-    // Check if it's a plan name (in plans/) or a direct path
+    // Check if it's a plan ID (look up in registry), a file path, or a plan name in plans/
     if (planArg.includes('/') || planArg.endsWith('.md')) {
+      // It's a file path - use as-is
       planPath = path.resolve(projectRoot, planArg);
     } else {
-      // Assume it's a plan name in plans/ directory
-      planPath = path.join(projectRoot, 'plans', planArg, 'IMPLEMENTATION_PLAN.md');
+      // Try to look up in registry first
+      const registeredPlan = await registry.getPlan(planArg);
+      if (registeredPlan) {
+        // Found in registry - use its projectRoot and planPath
+        projectRoot = registeredPlan.projectRoot;
+        planPath = registeredPlan.planPath;
+        console.log(`Using plan from registry: ${planArg}`);
+        console.log(`  Project root: ${projectRoot}`);
+        console.log(`  Plan path: ${planPath}`);
+      } else {
+        // Not in registry - assume it's a plan name in plans/ directory
+        planPath = path.join(projectRoot, 'plans', planArg, 'IMPLEMENTATION_PLAN.md');
+      }
     }
   } else if (!planPath) {
     // Default to IMPLEMENTATION_PLAN.md in current or project directory

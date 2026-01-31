@@ -5,7 +5,7 @@
  */
 
 import * as path from 'path';
-import type { RalphPlan, RalphTask, TaskStatus } from './types/index.js';
+import type { RalphPlan, RalphTask, TaskStatus, AcceptanceCriterion } from './types/index.js';
 
 const VALID_STATUSES: TaskStatus[] = ['To Do', 'In Progress', 'Implemented', 'Needs Re-Work', 'Verified'];
 const DEFAULT_STATUS: TaskStatus = 'To Do';
@@ -35,13 +35,14 @@ export function planToMarkdown(plan: RalphPlan): string {
       md += `**Complexity:** ${task.estimatedComplexity}/5\n`;
     }
     if (task.tags && task.tags.length > 0) {
-      md += `**Tags:** ${task.tags.join(', ')}\n`;
+      md += `**Tags:** [${task.tags.join(', ')}]\n`;
     }
     md += `\n`;
     md += `**Description:**\n${task.description}\n\n`;
     md += `**Acceptance Criteria:**\n`;
     for (const criterion of task.acceptanceCriteria) {
-      md += `- [ ] ${criterion}\n`;
+      const checkbox = criterion.completed ? '[x]' : '[ ]';
+      md += `- ${checkbox} ${criterion.text}\n`;
     }
     if (task.specReference) {
       md += `\n**Spec Reference:** [${task.specReference}](${task.specReference})\n`;
@@ -159,10 +160,14 @@ export function planFromMarkdown(markdown: string, projectDir?: string): RalphPl
       continue;
     }
 
-    // Parse acceptance criteria checkboxes
-    const criteriaMatch = line.match(/^-\s+\[\s*\]\s*(.+)/);
+    // Parse acceptance criteria checkboxes (both [x] for checked and [ ] for unchecked)
+    const criteriaMatch = line.match(/^-\s+\[([ x])\]\s*(.+)/i);
     if (criteriaMatch) {
-      currentTask.acceptanceCriteria?.push(criteriaMatch[1]);
+      const isChecked = criteriaMatch[1].toLowerCase() === 'x';
+      currentTask.acceptanceCriteria?.push({
+        text: criteriaMatch[2],
+        completed: isChecked
+      });
       continue;
     }
 
@@ -377,22 +382,7 @@ export function getNextTask(plan: RalphPlan, completedTaskIds: Set<string>): Ral
       task.status === 'Verified' ||
       task.status === 'In Progress';
 
-    const dependenciesMet = task.dependencies.every(dep => {
-      // Check if dependency is in completed tasks
-      if (completedTaskIds.has(dep)) return true;
-
-      // Check if dependency task has terminal or in-progress status
-      const depTask = plan.tasks.find(t => t.id === dep);
-      if (depTask && (
-        depTask.status === 'Implemented' ||
-        depTask.status === 'Verified' ||
-        depTask.status === 'In Progress'
-      )) {
-        return true;
-      }
-
-      return false;
-    });
+    const dependenciesMet = task.dependencies.every(dep => completedTaskIds.has(dep));
 
     if (!isCompleted && !shouldSkipStatus && dependenciesMet) {
       return task;

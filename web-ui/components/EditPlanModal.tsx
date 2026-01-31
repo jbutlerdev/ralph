@@ -27,10 +27,11 @@ import {
   XCircle,
   Save,
   Edit3,
+  Square,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { RalphTask } from '@/lib/plan-utils';
-import type { TaskStatus } from '@/lib/plan-utils';
+import type { RalphTask, AcceptanceCriterion } from '@/lib/ralph/types';
+import type { TaskStatus } from '@/lib/ralph/types';
 
 export interface EditTaskData {
   id: string;
@@ -39,7 +40,7 @@ export interface EditTaskData {
   priority: 'high' | 'medium' | 'low';
   status: TaskStatus;
   dependencies: string[];
-  acceptanceCriteria: string[];
+  acceptanceCriteria: AcceptanceCriterion[];
 }
 
 interface PlanMetadata {
@@ -94,7 +95,7 @@ export function EditPlanModal({ open, onOpenChange, tasks, completedTaskIds = ne
       priority: 'medium',
       status: 'To Do',
       dependencies: [],
-      acceptanceCriteria: [''],
+      acceptanceCriteria: [{ text: '', completed: false }],
     };
     setEditedTasks([...editedTasks, newTask]);
     setEditingTaskId(newId);
@@ -127,7 +128,7 @@ export function EditPlanModal({ open, onOpenChange, tasks, completedTaskIds = ne
     const task = editedTasks.find((t) => t.id === taskId);
     if (task) {
       updateTask(taskId, {
-        acceptanceCriteria: [...task.acceptanceCriteria, ''],
+        acceptanceCriteria: [...task.acceptanceCriteria, { text: '', completed: false }],
       });
     }
   };
@@ -136,7 +137,22 @@ export function EditPlanModal({ open, onOpenChange, tasks, completedTaskIds = ne
     const task = editedTasks.find((t) => t.id === taskId);
     if (task) {
       const newCriteria = [...task.acceptanceCriteria];
-      newCriteria[index] = value;
+      newCriteria[index] = { ...newCriteria[index], text: value };
+      updateTask(taskId, { acceptanceCriteria: newCriteria });
+    }
+  };
+
+  const toggleCriterion = (taskId: string, index: number) => {
+    const task = editedTasks.find((t) => t.id === taskId);
+    if (task) {
+      const newCriteria = [...task.acceptanceCriteria];
+      const criterion = newCriteria[index];
+      // Handle both object format and legacy string format
+      if (typeof criterion === 'object') {
+        newCriteria[index] = { ...criterion, completed: !criterion.completed };
+      } else {
+        newCriteria[index] = { text: String(criterion), completed: true };
+      }
       updateTask(taskId, { acceptanceCriteria: newCriteria });
     }
   };
@@ -232,6 +248,7 @@ export function EditPlanModal({ open, onOpenChange, tasks, completedTaskIds = ne
                 onDelete={() => deleteTask(task.id)}
                 onAddCriterion={() => addCriterion(task.id)}
                 onUpdateCriterion={(idx, value) => updateCriterion(task.id, idx, value)}
+                onToggleCriterion={(idx) => toggleCriterion(task.id, idx)}
                 onDeleteCriterion={(idx) => deleteCriterion(task.id, idx)}
                 onToggleDependency={(depId) => toggleDependency(task.id, depId)}
               />
@@ -276,6 +293,7 @@ interface TaskEditorProps {
   onDelete: () => void;
   onAddCriterion: () => void;
   onUpdateCriterion: (index: number, value: string) => void;
+  onToggleCriterion: (index: number) => void;
   onDeleteCriterion: (index: number) => void;
   onToggleDependency: (depTaskId: string) => void;
   completedTaskIds?: Set<string>;
@@ -290,6 +308,7 @@ function TaskEditor({
   onDelete,
   onAddCriterion,
   onUpdateCriterion,
+  onToggleCriterion,
   onDeleteCriterion,
   onToggleDependency,
   completedTaskIds = new Set<string>(),
@@ -437,34 +456,46 @@ function TaskEditor({
             </Button>
           </div>
           <div className="space-y-2">
-            {task.acceptanceCriteria.map((criterion, idx) => (
-              <div key={idx} className="flex items-start gap-2">
-                <div className="mt-2.5 flex-shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={false}
-                    disabled
-                    className="h-4 w-4 rounded border-gray-300"
+            {task.acceptanceCriteria.map((criterion, idx) => {
+              // Handle both object format {text, completed} and legacy string format
+              const criterionText = typeof criterion === 'object' ? criterion.text : criterion;
+              const isCompleted = typeof criterion === 'object' ? criterion.completed : false;
+
+              return (
+                <div key={idx} className="flex items-start gap-2">
+                  <div className="mt-2.5 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => onToggleCriterion(idx)}
+                      className={cn(
+                        'h-4 w-4 rounded border-2 transition-colors',
+                        isCompleted
+                          ? 'bg-green-500 border-green-500 text-white hover:bg-green-600'
+                          : 'border-gray-300 hover:border-green-500'
+                      )}
+                    >
+                      {isCompleted && <Check className="h-3 w-3" />}
+                    </button>
+                  </div>
+                  <Input
+                    value={criterionText}
+                    onChange={(e) => onUpdateCriterion(idx, e.target.value)}
+                    placeholder="Acceptance criterion..."
+                    className="flex-1"
                   />
+                  {task.acceptanceCriteria.length > 1 && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => onDeleteCriterion(idx)}
+                      className="h-8 w-8 text-muted-foreground hover:text-red-600"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
-                <Input
-                  value={criterion}
-                  onChange={(e) => onUpdateCriterion(idx, e.target.value)}
-                  placeholder="Acceptance criterion..."
-                  className="flex-1"
-                />
-                {task.acceptanceCriteria.length > 1 && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => onDeleteCriterion(idx)}
-                    className="h-8 w-8 text-muted-foreground hover:text-red-600"
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

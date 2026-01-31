@@ -10,19 +10,27 @@
 export type TaskStatus = 'To Do' | 'In Progress' | 'Implemented' | 'Needs Re-Work' | 'Verified';
 
 /**
+ * Individual acceptance criterion with its completion state
+ */
+export interface AcceptanceCriterion {
+  text: string;
+  completed: boolean;
+}
+
+/**
  * A single task in a Ralph implementation plan
  */
 export interface RalphTask {
-  id: string;                  // e.g., "task-001", "task-002"
-  title: string;               // Human-readable task title
-  description: string;         // Detailed description of what to implement
+  id: string;                              // e.g., "task-001", "task-002"
+  title: string;                           // Human-readable task title
+  description: string;                     // Detailed description of what to implement
   priority: 'high' | 'medium' | 'low';
-  dependencies: string[];      // Array of task IDs that must complete first
-  acceptanceCriteria: string[]; // Array of checkboxes for completion verification
-  specReference?: string;      // Optional path to spec file
+  dependencies: string[];                    // Array of task IDs that must complete first
+  acceptanceCriteria: AcceptanceCriterion[];  // Array of checkboxes for completion verification
+  specReference?: string;                  // Optional path to spec file
   estimatedComplexity?: 1 | 2 | 3 | 4 | 5; // 1=trivial, 5=complex
-  tags?: string[];             // Optional tags for filtering/grouping
-  status: TaskStatus;          // Current status of the task (default: "To Do")
+  tags?: string[];                         // Optional tags for filtering/grouping
+  status: TaskStatus;                      // Current status of the task (default: "To Do")
 }
 
 /**
@@ -164,6 +172,12 @@ export interface RalphExecutorOptions {
   resume?: boolean;
 
   /**
+   * Whether to skip tasks that are already implemented/verified in the plan file
+   * Used for restart to skip completed tasks
+   */
+  skipCompletedTasks?: boolean;
+
+  /**
    * Claude model to use (e.g., 'sonnet', 'opus', 'haiku')
    */
   model?: string;
@@ -215,6 +229,7 @@ export interface ExecutionRequest {
   plan?: string;
   directory?: string;
   resume?: boolean;
+  skipCompletedTasks?: boolean;
   noCommit?: boolean;
   autoTest?: boolean;
   dryRun?: boolean;
