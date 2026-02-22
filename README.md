@@ -75,9 +75,50 @@ A Claude Code skill that sends plans to the Ralph server for execution.
 Use the ralph-executor skill to send a plan to the server and monitor execution.
 ```
 
+## Two Ways to Use Ralph
+
+Ralph can be used in two ways:
+
+### 1. Full Server (TypeScript)
+
+The complete implementation with HTTP API, web dashboard, and all features.
+
+**Use when:** You need the web UI, HTTP API, or advanced session management.
+
+```bash
+npm install
+npm run build
+npm run server
+```
+
+See [simple-bash/README.md](./simple-bash/README.md) for details.
+
+### 2. Simple Bash Version
+
+A lightweight pure-bash CLI that provides the core Ralph Wiggum technique without the server stack. Just copy the script and run it.
+
+**Use when:** You want minimal dependencies, quick prototyping, or a simpler workflow.
+
+```bash
+cd simple-bash
+chalias ralph-sh init my-project
+./ralph-sh run
+```
+
+**Quick comparison:**
+
+| Feature | Full Server | Simple Bash |
+|---------|-------------|-------------|
+| Setup | `npm install` | Just copy script |
+| Web UI | ✅ | ❌ |
+| HTTP API | ✅ | ❌ |
+| Dependencies | Node.js, Express | bash + git |
+
+See [simple-bash/README.md](./simple-bash/README.md) for full documentation.
+
 ## Getting Started
 
-### Prerequisites
+### Prerequisites (Full Server)
 
 - Node.js 18+
 - npm or yarn
@@ -143,6 +184,10 @@ ralph/
 │   └── ralph-plan-generator.skill.ts
 ├── .claude/skills/            # Internal skills
 │   └── ralph-executor/    # Server client skill
+├── simple-bash/              # Lightweight bash CLI version
+│   ├── ralph-sh            # Main bash script
+│   ├── SKILL.md            # Spec plan generator skill (reference)
+│   └── README.md           # Simple bash documentation
 ├── plans/                    # Generated plans
 ├── dist/                     # Compiled output
 ├── tsconfig.json
