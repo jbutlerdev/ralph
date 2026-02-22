@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Trap SIGINT to ensure proper cleanup
+trap 'echo "Interrupted by user"; exit 130' INT
+
+# Configuration
+NOTIFY_URL="${NOTIFY_URL:-http://mule.botnet:8081/message}"
+PROJECT_NAME="${PROJECT_NAME:-$(basename "$PWD")}"
+TASK_TIMEOUT="${TASK_TIMEOUT:-2400}"
+LOCK_FILE="/tmp/ralph-sh-${PROJECT_NAME}.lock"
+
+plan="${1:-plan.md}"
+spec="${2:-spec.md}"
+max_loops="${3:-0}"
+loop=0
+
+# Check for existing lock to prevent duplicate runs in same project
+if [[ -f "$LOCK_FILE" ]]; then
+    existing_pid=$(cat "$LOCK_FILE" 2>/dev/null)
+    if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+        echo "Error: ralph-sh for '$PROJECT_NAME' is already running (PID: $existing_pid)"
+        echo "If you're sure it's not running, remove the lock: rm $LOCK_FILE"
+        exit 1
+    fi
+    # Stale lock, remove it
+    rm -f "$LOCK_FILE"
+fi
+
+# Create lock file
+echo "$$" > "$LOCK_FILE"
+trap 'rm -f "$LOCK_FILE"' EXIT
+
+# Send webhook notification
+notify() {
+  local message="$1"
+  echo "📡 Sending notification: $message"
+  curl -X POST "$NOTIFY_URL" \
+    -H "Content-Type: application/json" \
+    -d "{\"message\": \"$message\"}" \
+    --silent --show-error >/dev/null 2>&1 || true
+}
+
+if [[ ! -f "$plan" ]]; then
+  echo "Error: plan file '$plan' not found. Usage: ralph [plan.md] [spec.md] [max_loops]" >&2
+  exit 1
+fi
+if [[ ! -f "$spec" ]]; then
+  echo "Error: spec file '$spec' not found. Usage: ralph [plan.md] [spec.md] [max_loops]" >&2
+  exit 1
+fi
+task_prompt="Read the spec in $(realpath "$spec") and the plan in $(realpath "$plan").
+Complete the next unchecked task and ONLY the next unchecked task in the plan.
+After completing the task, check off its checkbox in the plan file to track progress.
+Do not move on to other tasks.
+After completing the task, append a brief entry to progress.md noting any decisions made, trade-offs, issues encountered, or other important context about the work done."
+summary_prompt="Read the spec in $(realpath "$spec"), the plan in $(realpath "$plan"), and progress.md.
+All tasks are now complete. Write a SUMMARY.md file in the current directory that includes:
+- A brief overview of what was implemented
+- A list of files changed or created
+- Any notable decisions or trade-offs made
+- The final outcome and whether the spec was fully satisfied"
+unchecked() {
+  grep -c '^ *- \[ \]' "$plan" 2>/dev/null || true
+}
+
+# Send start notification
+notify "ralph started for $PROJECT_NAME"
+
+while [[ $(unchecked) -gt 0 ]]; do
+  loop=$((loop + 1))
+  remaining=$(unchecked)
+  echo "=== Ralph loop $loop | $remaining tasks remaining ==="
+  if [[ $max_loops -gt 0 && $loop -gt $max_loops ]]; then
+    echo "Max loops ($max_loops) reached. Exiting."
+    notify "ralph for $PROJECT_NAME: max loops reached"
+    exit 1
+  fi
+  echo "🚀 Running pi command with timeout ${TASK_TIMEOUT}s..."
+  timeout "${TASK_TIMEOUT}s" pi --timeout 600000 --provider "${PI_PROVIDER:-minimax}" --model "${PI_MODEL:-minimax-m2.5-highspeed}" -p "$task_prompt" || {
+    exit_code=$?
+    if [ $exit_code -eq 124 ]; then
+      echo "Task timed out after ${TASK_TIMEOUT}s, continuing to next task..."
+    else
+      echo "pi exited with code $exit_code, continuing to next task..."
+    fi
+  }
+done
+echo "=== All tasks complete after $loop loops. Generating summary... ==="
+timeout "${TASK_TIMEOUT}s" pi --timeout 600000 --provider "${PI_PROVIDER:-minimax}" --model "${PI_MODEL:-minimax-m2.5-highspeed}" -p "$summary_prompt" || {
+  exit_code=$?
+  if [ $exit_code -eq 124 ]; then
+    echo "Summary generation timed out"
+  else
+    echo "Summary generation failed with code $exit_code"
+  fi
+}
+
+# Send completion notification
+notify "ralph for $PROJECT_NAME: all tasks complete"
+
+echo "=== Done ==="
+
