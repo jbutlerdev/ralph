@@ -2,6 +2,35 @@
 
 A lightweight CLI implementation of the Ralph Wiggum technique using pure bash. This provides a minimal alternative to the full TypeScript server for teams who want a simpler setup.
 
+## Installation
+
+The simple bash version requires two things:
+
+### 1. Ralph-sh Script
+
+The `ralph-sh` script is installed globally at `/usr/local/bin/ralph-sh`. If you don't have it:
+
+```bash
+curl -o /usr/local/bin/ralph-sh https://raw.githubusercontent.com/jbutlerdev/ralph/main/simple-bash/ralph-sh
+chmod +x /usr/local/bin/ralph-sh
+```
+
+Or copy from this directory after cloning the repo.
+
+### 2. Spec Plan Generator Skill (Optional)
+
+To use the Spec & Plan Generator skill with Claude Code/pi, copy it to your skills directory:
+
+```bash
+# Create the skills directory if it doesn't exist
+mkdir -p ~/.pi/agent/skills
+
+# Copy the skill folder
+cp -r simple-bash/spec-plan-generator ~/.pi/agent/skills/
+```
+
+The skill will then be available in Claude Code as `spec-plan-generator`.
+
 ## When to Use the Simple Bash Version
 
 Choose the simple bash version when:
@@ -21,61 +50,59 @@ Choose the **full TypeScript server** when:
 ## Quick Start
 
 ```bash
-# Navigate to the simple-bash directory
-cd simple-bash
+# Ensure you have spec.md and plan.md files in your project
+# (use the spec-plan-generator skill to create these)
 
-# Make the script executable
-chmod +x ralph-sh
+# Run Ralph - it will execute tasks in a loop until complete
+ralph-sh plan.md spec.md
 
-# Initialize a new project
-./ralph-sh init my-project
-
-# Add tasks to your plan
-./ralph-sh plan "Set up project structure"
-./ralph-sh plan "Implement user authentication"
-./ralph-sh plan "Add dashboard UI"
-
-# Check status
-./ralph-sh status
-
-# Run the next task (this creates a prompt for Claude)
-./ralph-sh run
-
-# In your Claude Code session, read the prompt and execute
-cat .ralph/prompts/task-001.txt
-
-# After completing the work, mark as done
-./ralph-sh done
-
-# Commit your changes
-./ralph-sh commit "[task-001] Set up project structure"
-
-# Create exploration branch for trying something new
-./ralph-sh branch feature-experiment
+# Or limit the number of loops
+ralph-sh plan.md spec.md 5  # max 5 iterations
 ```
 
-## Commands
+## How It Works
 
-| Command | Description |
-|---------|-------------|
-| `./ralph-sh init <name>` | Initialize a new Ralph project |
-| `./ralph-sh plan <task>` | Add a task to the plan |
-| `./ralph-sh run` | Start the next pending task |
-| `./ralph-sh done` | Mark current task as complete |
-| `./ralph-sh status` | Show progress and task status |
-| `./ralph-sh branch <name>` | Create a new exploration branch |
-| `./ralph-sh commit <msg>` | Commit current changes |
-| `./ralph-sh log` | Show execution history |
-| `./ralph-sh help` | Show help message |
+The script:
+
+1. Reads your `plan.md` (tasks with checkboxes) and `spec.md` (requirements)
+2. Runs `pi` (Claude Code) with a task prompt
+3. After each task completes, checks off the checkbox in plan.md
+4. Loops until all tasks are done
+5. Generates a SUMMARY.md with an overview of what was built
+
+### Task Prompt
+
+The script sends this prompt to pi for each task:
+
+> Read the spec in spec.md and the plan in plan.md. Complete the next unchecked task and ONLY the next unchecked task in the plan. After completing the task, check off its checkbox in the plan file to track progress. Do not move on to other tasks. After completing the task, append a brief entry to progress.md noting any decisions made, trade-offs, issues encountered, or other important context.
+
+### Summary Prompt
+
+After all tasks complete:
+
+> Read the spec, the plan, and progress.md. Write a SUMMARY.md file that includes: overview, files changed, decisions/trade-offs, and final outcome.
+
+## Configuration
+
+Environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOTIFY_URL` | http://mule.botnet:8081/message | Webhook for notifications |
+| `PROJECT_NAME` | basename of current dir | Project identifier |
+| `TASK_TIMEOUT` | 2400 | Timeout per task in seconds |
+| `PI_PROVIDER` | minimax | AI provider to use |
+| `PI_MODEL` | minimax-m2.5-highspeed | AI model to use |
 
 ## The Ralph Wiggum Technique
 
 The core philosophy remains the same:
 
-1. **Plan** - Write down what needs to be done
-2. **Run** - Execute one task at a time with AI
-3. **Review** - Check the diff and commit at boundaries
-4. **Iterate** - Re-run with feedback or fork for exploration
+1. **Plan** - Write down what needs to be done in plan.md
+2. **Spec** - Define requirements in spec.md
+3. **Run** - Execute tasks one at a time with AI
+4. **Review** - Check progress.md for context
+5. **Iterate** - Re-run with feedback or fork for exploration
 
 ### Why It Works
 
@@ -88,65 +115,60 @@ The core philosophy remains the same:
 
 ```
 simple-bash/
-├── ralph-sh          # Main CLI script
-├── SKILL.md          # Spec & Plan Generator skill (copied for reference)
-└── README.md         # This file
-
-# Created on init:
-.ralph/
-├── sessions/         # Session data (future use)
-├── checkpoints/     # File checkpoints
-├── prompts/         # Task prompts for Claude
-└── execution.log   # Execution history
-
-plans/
-└── IMPLEMENTATION_PLAN.md   # Your task plan
+├── ralph-sh              # Reference to /usr/local/bin/ralph-sh
+├── spec-plan-generator/  # Spec & Plan Generator skill
+│   └── SKILL.md
+└── README.md             # This file
 ```
 
 ## Integration with Claude Code
 
-The simple bash version works by creating prompt files that Claude Code can read:
+### Using the Spec Plan Generator
 
-1. `./ralph-sh run` creates `.ralph/prompts/task-XXX.txt`
-2. Open that file to see the task details and acceptance criteria
-3. Complete the work following TDD principles
-4. Run `./ralph-sh done` to mark the task complete
-5. Review with `git diff` and commit
+1. Copy the skill to your pi skills directory:
+   ```bash
+   cp -r simple-bash/spec-plan-generator ~/.pi/agent/skills/
+   ```
 
-## Using with the Spec Plan Generator
+2. In Claude Code, invoke the skill:
+   ```
+   Use the spec-plan-generator skill to create a spec and plan for my project.
+   ```
 
-The simple-bash directory includes the **Spec & Plan Generator** skill (`SKILL.md`) for reference. This skill generates comprehensive `spec.md` and `plan.md` documents before implementation begins.
+3. The skill will generate:
+   - `spec.md` - Comprehensive product specification
+   - `plan.md` - Phased development plan with checkboxes
 
-To use:
-
-1. Read `SKILL.md` to understand the skill format
-2. Use Claude Code with the skill to generate your spec and plan
-3. Convert the output to `IMPLEMENTATION_PLAN.md` format
-4. Use `ralph-sh` to execute tasks one by one
+4. Run Ralph to execute:
+   ```bash
+   ralph-sh plan.md spec.md
+   ```
 
 ## Differences from Full Version
 
 | Feature | Simple Bash | Full Server |
 |---------|-------------|-------------|
-| Setup complexity | Just copy the script | npm install, build, run |
+| Setup complexity | Just the script | npm install, build, run |
 | Web dashboard | ❌ | ✅ |
 | HTTP API | ❌ | ✅ |
-| Session management | Basic (git-based) | Advanced (JSON + git) |
+| Session management | Basic (progress.md) | Advanced (JSON + git) |
 | Real-time status | ❌ | ✅ |
-| Dependencies | bash + git | Node.js, Express, TypeScript |
+| Dependencies | bash + pi | Node.js, Express, TypeScript |
 | Platform | Unix/Linux/macOS | Cross-platform |
 
 ## Troubleshooting
 
-**"No plan found"**
-- Run `./ralph-sh init` first to create the plan file
+**"plan file not found"**
+- Ensure you're in a directory with plan.md and spec.md
 
-**Git errors**
-- Ensure you're in a git repository: `git init` if needed
-- Check you have no uncommitted changes
+**"ralph-sh not found"**
+- Make sure /usr/local/bin is in your PATH, or copy the script locally
 
-**Task not marked complete**
-- Make sure to run `./ralph-sh done` after finishing work
+**Tasks not being checked off**
+- The script expects `- [ ]` format for unchecked items in plan.md
+
+**Lock file errors**
+- Remove stale lock: `rm /tmp/ralph-sh-*.lock`
 
 ## License
 
