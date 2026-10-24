@@ -15,9 +15,11 @@ describe('TaskDetail', () => {
         description: 'Test description',
         priority: 'high',
         dependencies: [],
-        acceptanceCriteria: ['criterion 1'],
+        acceptanceCriteria: [{ text: 'criterion 1', completed: false }],
         estimatedComplexity: 3,
         tags: ['frontend'],
+      
+        status: 'To Do',
       };
 
       const props: TaskDetailProps = {
@@ -41,6 +43,8 @@ describe('TaskDetail', () => {
         priority: 'medium',
         dependencies: [],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       };
 
       const props: TaskDetailProps = {
@@ -67,6 +71,7 @@ describe('TaskDetail', () => {
           dependencies: [],
           acceptanceCriteria: [],
           estimatedComplexity: complexity,
+          status: 'To Do',
         };
 
         expect(task.estimatedComplexity).toBe(complexity);
@@ -85,6 +90,8 @@ describe('TaskDetail', () => {
         priority: 'high',
         dependencies: ['task-001', 'task-002', 'task-003', 'task-004'],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       };
 
       expect(task.dependencies).toHaveLength(4);
@@ -100,6 +107,8 @@ describe('TaskDetail', () => {
         priority: 'low',
         dependencies: [],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       };
 
       expect(task.dependencies).toHaveLength(0);
@@ -115,16 +124,17 @@ describe('TaskDetail', () => {
         priority: 'high',
         dependencies: [],
         acceptanceCriteria: [
-          'First criterion',
-          'Second criterion',
-          'Third criterion',
-          'Fourth criterion',
-          'Fifth criterion',
+          { text: 'First criterion', completed: false },
+          { text: 'Second criterion', completed: false },
+          { text: 'Third criterion', completed: false },
+          { text: 'Fourth criterion', completed: false },
+          { text: 'Fifth criterion', completed: false },
         ],
+        status: 'To Do',
       };
 
       expect(task.acceptanceCriteria).toHaveLength(5);
-      expect(task.acceptanceCriteria[0]).toBe('First criterion');
+      expect(task.acceptanceCriteria[0].text).toBe('First criterion');
     });
 
     it('should handle tasks with no acceptance criteria', () => {
@@ -135,6 +145,8 @@ describe('TaskDetail', () => {
         priority: 'medium',
         dependencies: [],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       };
 
       expect(task.acceptanceCriteria).toHaveLength(0);
@@ -151,6 +163,8 @@ describe('TaskDetail', () => {
         dependencies: [],
         acceptanceCriteria: [],
         tags: ['frontend', 'react', 'typescript', 'testing'],
+      
+        status: 'To Do',
       };
 
       expect(task.tags).toBeDefined();
@@ -166,6 +180,8 @@ describe('TaskDetail', () => {
         priority: 'low',
         dependencies: [],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       };
 
       expect(task.tags).toBeUndefined();
@@ -184,7 +200,8 @@ describe('TaskDetail', () => {
           priority: priority,
           dependencies: [],
           acceptanceCriteria: [],
-        };
+        status: 'To Do',
+      };
 
         expect(task.priority).toBe(priority);
       });
@@ -201,6 +218,8 @@ describe('TaskDetail', () => {
         dependencies: [],
         acceptanceCriteria: [],
         specReference: '/docs/spec.md',
+      
+        status: 'To Do',
       };
 
       expect(task.specReference).toBe('/docs/spec.md');
@@ -214,6 +233,8 @@ describe('TaskDetail', () => {
         priority: 'medium',
         dependencies: [],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       };
 
       expect(task.specReference).toBeUndefined();
@@ -229,6 +250,8 @@ describe('TaskDetail', () => {
         priority: 'medium',
         dependencies: [],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       };
 
       const props: TaskDetailProps = {

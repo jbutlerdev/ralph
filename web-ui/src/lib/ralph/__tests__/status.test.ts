@@ -13,6 +13,7 @@ import {
   runtimeStatusToString,
   getRuntimeStatusClass,
   type RalphSession,
+  type RuntimeTaskStatus,
 } from '../status';
 import type { RalphPlan, RalphTask } from '../types';
 
@@ -33,6 +34,8 @@ describe('getTaskStatus', () => {
         priority: 'high',
         dependencies: [],
         acceptanceCriteria: ['Criterion 1'],
+      
+        status: 'To Do',
       },
       {
         id: 'task-002',
@@ -41,6 +44,8 @@ describe('getTaskStatus', () => {
         priority: 'medium',
         dependencies: ['task-001'],
         acceptanceCriteria: ['Criterion 2'],
+      
+        status: 'To Do',
       },
       {
         id: 'task-003',
@@ -49,6 +54,8 @@ describe('getTaskStatus', () => {
         priority: 'low',
         dependencies: ['task-002'],
         acceptanceCriteria: ['Criterion 3'],
+      
+        status: 'To Do',
       },
     ],
     generatedAt: new Date().toISOString(),
@@ -326,6 +333,8 @@ describe('getTaskStatusInfo', () => {
         priority: 'high',
         dependencies: [],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       },
       {
         id: 'task-002',
@@ -334,6 +343,8 @@ describe('getTaskStatusInfo', () => {
         priority: 'medium',
         dependencies: ['task-001'],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       },
     ],
     generatedAt: new Date().toISOString(),
@@ -438,7 +449,7 @@ describe('getTaskStatusInfo', () => {
 
 describe('isTaskReady', () => {
   it('should return true for pending tasks', () => {
-    const statuses = new Map([
+    const statuses = new Map<string, RuntimeTaskStatus>([
       ['task-001', 'pending'],
       ['task-002', 'completed'],
     ]);
@@ -448,7 +459,7 @@ describe('isTaskReady', () => {
   });
 
   it('should return false for non-pending tasks', () => {
-    const statuses = new Map([
+    const statuses = new Map<string, RuntimeTaskStatus>([
       ['task-001', 'in-progress'],
       ['task-002', 'completed'],
       ['task-003', 'blocked'],
@@ -462,7 +473,7 @@ describe('isTaskReady', () => {
   });
 
   it('should return false for unknown tasks', () => {
-    const statuses = new Map([['task-001', 'completed']]);
+    const statuses = new Map<string, RuntimeTaskStatus>([['task-001', 'completed']]);
 
     expect(isTaskReady('task-999', statuses)).toBe(false);
   });
@@ -481,6 +492,8 @@ describe('getNextTaskToExecute', () => {
         priority: 'medium',
         dependencies: [],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       },
       {
         id: 'task-002',
@@ -489,6 +502,8 @@ describe('getNextTaskToExecute', () => {
         priority: 'high',
         dependencies: ['task-001'],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       },
       {
         id: 'task-003',
@@ -497,6 +512,8 @@ describe('getNextTaskToExecute', () => {
         priority: 'low',
         dependencies: ['task-001'],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       },
     ],
     generatedAt: new Date().toISOString(),
@@ -504,7 +521,7 @@ describe('getNextTaskToExecute', () => {
   };
 
   it('should return first pending task with all dependencies met', () => {
-    const statuses = new Map([
+    const statuses = new Map<string, RuntimeTaskStatus>([
       ['task-001', 'completed'],
       ['task-002', 'pending'],
       ['task-003', 'pending'],
@@ -517,7 +534,7 @@ describe('getNextTaskToExecute', () => {
   });
 
   it('should return null when no tasks are ready', () => {
-    const statuses = new Map([
+    const statuses = new Map<string, RuntimeTaskStatus>([
       ['task-001', 'blocked'],  // No dependencies, but not pending
       ['task-002', 'blocked'],
       ['task-003', 'blocked'],
@@ -529,7 +546,7 @@ describe('getNextTaskToExecute', () => {
   });
 
   it('should return null when all tasks are completed', () => {
-    const statuses = new Map([
+    const statuses = new Map<string, RuntimeTaskStatus>([
       ['task-001', 'completed'],
       ['task-002', 'completed'],
       ['task-003', 'completed'],
@@ -541,7 +558,7 @@ describe('getNextTaskToExecute', () => {
   });
 
   it('should sort by priority when multiple tasks are ready', () => {
-    const statuses = new Map([
+    const statuses = new Map<string, RuntimeTaskStatus>([
       ['task-001', 'completed'],
       ['task-002', 'pending'],
       ['task-003', 'pending'],
@@ -566,7 +583,9 @@ describe('getNextTaskToExecute', () => {
           priority: 'medium',
           dependencies: [],
           acceptanceCriteria: [],
-        },
+        
+        status: 'To Do',
+      },
         {
           id: 'task-001',
           title: 'Task 1',
@@ -574,7 +593,9 @@ describe('getNextTaskToExecute', () => {
           priority: 'medium',
           dependencies: [],
           acceptanceCriteria: [],
-        },
+        
+        status: 'To Do',
+      },
         {
           id: 'task-002',
           title: 'Task 2',
@@ -582,13 +603,15 @@ describe('getNextTaskToExecute', () => {
           priority: 'medium',
           dependencies: [],
           acceptanceCriteria: [],
-        },
+        
+        status: 'To Do',
+      },
       ],
       generatedAt: new Date().toISOString(),
       totalTasks: 3,
     };
 
-    const statuses = new Map([
+    const statuses = new Map<string, RuntimeTaskStatus>([
       ['task-001', 'pending'],
       ['task-002', 'pending'],
       ['task-003', 'pending'],
@@ -600,7 +623,7 @@ describe('getNextTaskToExecute', () => {
   });
 
   it('should not return tasks with incomplete dependencies', () => {
-    const statuses = new Map([
+    const statuses = new Map<string, RuntimeTaskStatus>([
       ['task-001', 'pending'],
       ['task-002', 'pending'],
       ['task-003', 'pending'],
@@ -613,7 +636,7 @@ describe('getNextTaskToExecute', () => {
   });
 
   it('should skip in-progress tasks', () => {
-    const statuses = new Map([
+    const statuses = new Map<string, RuntimeTaskStatus>([
       ['task-001', 'in-progress'],
       ['task-002', 'pending'],
       ['task-003', 'pending'],

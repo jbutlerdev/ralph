@@ -15,16 +15,20 @@ describe('DependencyGraph', () => {
           description: 'First task',
           priority: 'high',
           dependencies: [],
-          acceptanceCriteria: ['Done'],
-        },
+          acceptanceCriteria: [{ text: 'Done', completed: false }],
+        
+        status: 'To Do',
+      },
         {
           id: 'task-002',
           title: 'Task 2',
           description: 'Second task',
           priority: 'medium',
           dependencies: ['task-001'],
-          acceptanceCriteria: ['Done'],
-        },
+          acceptanceCriteria: [{ text: 'Done', completed: false }],
+        
+        status: 'To Do',
+      },
       ];
 
       expect(tasks.length).toBe(2);
@@ -37,7 +41,9 @@ describe('DependencyGraph', () => {
         description: 'No dependencies',
         priority: 'low',
         dependencies: [],
-        acceptanceCriteria: ['Criterion 1'],
+        acceptanceCriteria: [{ text: 'Criterion 1', completed: false }],
+      
+        status: 'To Do',
       };
 
       expect(task.dependencies.length).toBe(0);
@@ -50,7 +56,9 @@ describe('DependencyGraph', () => {
         description: 'Depends on multiple tasks',
         priority: 'high',
         dependencies: ['task-001', 'task-002'],
-        acceptanceCriteria: ['Done'],
+        acceptanceCriteria: [{ text: 'Done', completed: false }],
+      
+        status: 'To Do',
       };
 
       expect(task.dependencies.length).toBe(2);
@@ -68,24 +76,30 @@ describe('DependencyGraph', () => {
           description: 'First task',
           priority: 'high',
           dependencies: [],
-          acceptanceCriteria: ['Done'],
-        },
+          acceptanceCriteria: [{ text: 'Done', completed: false }],
+        
+        status: 'To Do',
+      },
         {
           id: 'task-002',
           title: 'Task 2',
           description: 'Second task',
           priority: 'medium',
           dependencies: ['task-001'],
-          acceptanceCriteria: ['Done'],
-        },
+          acceptanceCriteria: [{ text: 'Done', completed: false }],
+        
+        status: 'To Do',
+      },
         {
           id: 'task-003',
           title: 'Task 3',
           description: 'Third task',
           priority: 'low',
           dependencies: ['task-001', 'task-002'],
-          acceptanceCriteria: ['Done'],
-        },
+          acceptanceCriteria: [{ text: 'Done', completed: false }],
+        
+        status: 'To Do',
+      },
       ];
 
       // Count total dependencies (edges)
@@ -105,16 +119,20 @@ describe('DependencyGraph', () => {
           description: 'First task',
           priority: 'high',
           dependencies: ['task-002'], // Creates cycle: 001 -> 002 -> 001
-          acceptanceCriteria: ['Done'],
-        },
+          acceptanceCriteria: [{ text: 'Done', completed: false }],
+        
+        status: 'To Do',
+      },
         {
           id: 'task-002',
           title: 'Task 2',
           description: 'Second task',
           priority: 'medium',
           dependencies: ['task-001'],
-          acceptanceCriteria: ['Done'],
-        },
+          acceptanceCriteria: [{ text: 'Done', completed: false }],
+        
+        status: 'To Do',
+      },
       ];
 
       // This would be detected by validation logic
@@ -127,7 +145,7 @@ describe('DependencyGraph', () => {
 
   describe('Status color mapping', () => {
     it('should map completed status to green', () => {
-      const status = 'completed';
+      const status: string = 'completed';
       const color = status === 'completed' ? '#22c55e' :
                     status === 'in_progress' ? '#eab308' :
                     status === 'failed' ? '#ef4444' : '#9ca3af';
@@ -136,7 +154,7 @@ describe('DependencyGraph', () => {
     });
 
     it('should map in_progress status to yellow', () => {
-      const status = 'in_progress';
+      const status: string = 'in_progress';
       const color = status === 'completed' ? '#22c55e' :
                     status === 'in_progress' ? '#eab308' :
                     status === 'failed' ? '#ef4444' : '#9ca3af';
@@ -145,7 +163,7 @@ describe('DependencyGraph', () => {
     });
 
     it('should map pending status to gray', () => {
-      const status = 'pending';
+      const status: string = 'pending';
       const color = status === 'completed' ? '#22c55e' :
                     status === 'in_progress' ? '#eab308' :
                     status === 'failed' ? '#ef4444' : '#9ca3af';
@@ -154,7 +172,7 @@ describe('DependencyGraph', () => {
     });
 
     it('should map failed status to red', () => {
-      const status = 'failed';
+      const status: string = 'failed';
       const color = status === 'completed' ? '#22c55e' :
                     status === 'in_progress' ? '#eab308' :
                     status === 'failed' ? '#ef4444' : '#9ca3af';
@@ -175,13 +193,14 @@ describe('DependencyGraph', () => {
 
   describe('Graph layout calculations', () => {
     it('should calculate node count correctly', () => {
-      const tasks: RalphTask[] = Array.from({ length: 10 }, (_, i) => ({
+      const tasks: RalphTask[] = Array.from({ length: 10 }, (_, i): RalphTask => ({
         id: `task-${String(i + 1).padStart(3, '0')}`,
         title: `Task ${i + 1}`,
         description: `Description ${i + 1}`,
         priority: 'medium',
         dependencies: [],
-        acceptanceCriteria: ['Done'],
+        acceptanceCriteria: [{ text: 'Done', completed: false }],
+        status: 'To Do',
       }));
 
       expect(tasks.length).toBe(10);
@@ -195,15 +214,18 @@ describe('DependencyGraph', () => {
           description: 'Root task',
           priority: 'high',
           dependencies: [],
-          acceptanceCriteria: ['Done'],
-        },
-        ...Array.from({ length: 5 }, (_, i) => ({
+          acceptanceCriteria: [{ text: 'Done', completed: false }],
+        
+        status: 'To Do',
+      },
+        ...Array.from({ length: 5 }, (_, i): RalphTask => ({
           id: `task-${String(i + 2).padStart(3, '0')}`,
           title: `Child ${i + 1}`,
           description: `Child task ${i + 1}`,
           priority: 'medium',
           dependencies: ['task-001'],
-          acceptanceCriteria: ['Done'],
+          acceptanceCriteria: [{ text: 'Done', completed: false }],
+          status: 'To Do',
         })),
       ];
 
