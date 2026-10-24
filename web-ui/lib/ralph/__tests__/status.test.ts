@@ -43,7 +43,9 @@ describe('getTaskStatus', () => {
         description: 'First task description',
         priority: 'high',
         dependencies: [],
-        acceptanceCriteria: ['Done'],
+        acceptanceCriteria: [{ text: 'Done', completed: false }],
+      
+        status: 'To Do',
       },
       {
         id: 'task-002',
@@ -51,7 +53,9 @@ describe('getTaskStatus', () => {
         description: 'Second task description',
         priority: 'medium',
         dependencies: ['task-001'],
-        acceptanceCriteria: ['Done'],
+        acceptanceCriteria: [{ text: 'Done', completed: false }],
+      
+        status: 'To Do',
       },
       {
         id: 'task-003',
@@ -59,7 +63,9 @@ describe('getTaskStatus', () => {
         description: 'Third task description',
         priority: 'low',
         dependencies: ['task-002'],
-        acceptanceCriteria: ['Done'],
+        acceptanceCriteria: [{ text: 'Done', completed: false }],
+      
+        status: 'To Do',
       },
     ],
     generatedAt: new Date().toISOString(),
@@ -166,8 +172,10 @@ describe('getTaskStatus', () => {
           description: 'No dependencies',
           priority: 'high',
           dependencies: [],
-          acceptanceCriteria: ['Done'],
-        },
+          acceptanceCriteria: [{ text: 'Done', completed: false }],
+        
+        status: 'To Do',
+      },
       ],
     };
 
@@ -227,7 +235,9 @@ describe('getPlanStatusSummary', () => {
         description: 'First task',
         priority: 'high',
         dependencies: [],
-        acceptanceCriteria: ['Done'],
+        acceptanceCriteria: [{ text: 'Done', completed: false }],
+      
+        status: 'To Do',
       },
       {
         id: 'task-002',
@@ -235,7 +245,9 @@ describe('getPlanStatusSummary', () => {
         description: 'Second task',
         priority: 'medium',
         dependencies: ['task-001'],
-        acceptanceCriteria: ['Done'],
+        acceptanceCriteria: [{ text: 'Done', completed: false }],
+      
+        status: 'To Do',
       },
       {
         id: 'task-003',
@@ -243,7 +255,9 @@ describe('getPlanStatusSummary', () => {
         description: 'Third task',
         priority: 'low',
         dependencies: ['task-001'],
-        acceptanceCriteria: ['Done'],
+        acceptanceCriteria: [{ text: 'Done', completed: false }],
+      
+        status: 'To Do',
       },
       {
         id: 'task-004',
@@ -251,7 +265,9 @@ describe('getPlanStatusSummary', () => {
         description: 'Fourth task',
         priority: 'low',
         dependencies: [],
-        acceptanceCriteria: ['Done'],
+        acceptanceCriteria: [{ text: 'Done', completed: false }],
+      
+        status: 'To Do',
       },
     ],
     generatedAt: new Date().toISOString(),
@@ -337,7 +353,9 @@ describe('getTasksByStatus', () => {
         description: 'Completed',
         priority: 'high',
         dependencies: [],
-        acceptanceCriteria: ['Done'],
+        acceptanceCriteria: [{ text: 'Done', completed: false }],
+      
+        status: 'To Do',
       },
       {
         id: 'task-002',
@@ -345,7 +363,9 @@ describe('getTasksByStatus', () => {
         description: 'Pending',
         priority: 'medium',
         dependencies: ['task-001'],
-        acceptanceCriteria: ['Done'],
+        acceptanceCriteria: [{ text: 'Done', completed: false }],
+      
+        status: 'To Do',
       },
       {
         id: 'task-003',
@@ -353,7 +373,9 @@ describe('getTasksByStatus', () => {
         description: 'Completed',
         priority: 'low',
         dependencies: [],
-        acceptanceCriteria: ['Done'],
+        acceptanceCriteria: [{ text: 'Done', completed: false }],
+      
+        status: 'To Do',
       },
     ],
     generatedAt: new Date().toISOString(),

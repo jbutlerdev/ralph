@@ -237,8 +237,10 @@ describe('validateRalphPlan', () => {
           description: 'First task',
           priority: 'high',
           dependencies: [],
-          acceptanceCriteria: ['Criterion 1'],
-        },
+          acceptanceCriteria: [{ text: 'Criterion 1', completed: false }],
+        
+        status: 'To Do',
+      },
       ],
       generatedAt: new Date().toISOString(),
       totalTasks: 1,
@@ -278,8 +280,10 @@ describe('validateRalphPlan', () => {
           description: 'First task',
           priority: 'high',
           dependencies: [],
-          acceptanceCriteria: ['Criterion 1'],
-        },
+          acceptanceCriteria: [{ text: 'Criterion 1', completed: false }],
+        
+        status: 'To Do',
+      },
       ],
       generatedAt: new Date().toISOString(),
       totalTasks: 1,
@@ -303,16 +307,20 @@ describe('validateRalphPlan', () => {
           description: 'First task',
           priority: 'high',
           dependencies: [],
-          acceptanceCriteria: ['Criterion 1'],
-        },
+          acceptanceCriteria: [{ text: 'Criterion 1', completed: false }],
+        
+        status: 'To Do',
+      },
         {
           id: 'task-001',
           title: 'Task 2',
           description: 'Second task',
           priority: 'high',
           dependencies: [],
-          acceptanceCriteria: ['Criterion 1'],
-        },
+          acceptanceCriteria: [{ text: 'Criterion 1', completed: false }],
+        
+        status: 'To Do',
+      },
       ],
       generatedAt: new Date().toISOString(),
       totalTasks: 2,
@@ -337,7 +345,9 @@ describe('validateRalphPlan', () => {
           priority: 'high',
           dependencies: [],
           acceptanceCriteria: [],
-        },
+        
+        status: 'To Do',
+      },
       ],
       generatedAt: new Date().toISOString(),
       totalTasks: 1,
@@ -363,7 +373,9 @@ describe('validateRalphPlan', () => {
           priority: 'high',
           dependencies: [],
           acceptanceCriteria: [],
-        },
+        
+        status: 'To Do',
+      },
       ],
       generatedAt: new Date().toISOString(),
       totalTasks: 1,
@@ -387,8 +399,10 @@ describe('validateRalphPlan', () => {
           description: 'First task',
           priority: 'high',
           dependencies: ['task-999'],
-          acceptanceCriteria: ['Criterion 1'],
-        },
+          acceptanceCriteria: [{ text: 'Criterion 1', completed: false }],
+        
+        status: 'To Do',
+      },
       ],
       generatedAt: new Date().toISOString(),
       totalTasks: 1,
@@ -412,16 +426,20 @@ describe('validateRalphPlan', () => {
           description: 'First task',
           priority: 'high',
           dependencies: ['task-002'],
-          acceptanceCriteria: ['Criterion 1'],
-        },
+          acceptanceCriteria: [{ text: 'Criterion 1', completed: false }],
+        
+        status: 'To Do',
+      },
         {
           id: 'task-002',
           title: 'Task 2',
           description: 'Second task',
           priority: 'high',
           dependencies: ['task-001'],
-          acceptanceCriteria: ['Criterion 1'],
-        },
+          acceptanceCriteria: [{ text: 'Criterion 1', completed: false }],
+        
+        status: 'To Do',
+      },
       ],
       generatedAt: new Date().toISOString(),
       totalTasks: 2,
@@ -437,9 +455,15 @@ describe('validateRalphPlan', () => {
 describe('sortTasksByDependencies', () => {
   it('should sort independent tasks', () => {
     const tasks: RalphTask[] = [
-      { id: 'task-002', title: 'Task 2', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
-      { id: 'task-001', title: 'Task 1', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
-      { id: 'task-003', title: 'Task 3', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
+      { id: 'task-002', title: 'Task 2', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
+      { id: 'task-001', title: 'Task 1', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
+      { id: 'task-003', title: 'Task 3', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
     ];
 
     const sorted = sortTasksByDependencies(tasks);
@@ -457,6 +481,8 @@ describe('sortTasksByDependencies', () => {
         priority: 'high',
         dependencies: ['task-001', 'task-002'],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       },
       {
         id: 'task-001',
@@ -465,6 +491,8 @@ describe('sortTasksByDependencies', () => {
         priority: 'high',
         dependencies: [],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       },
       {
         id: 'task-002',
@@ -473,6 +501,8 @@ describe('sortTasksByDependencies', () => {
         priority: 'high',
         dependencies: ['task-001'],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       },
     ];
 
@@ -492,6 +522,8 @@ describe('sortTasksByDependencies', () => {
         priority: 'high',
         dependencies: ['task-002'],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       },
       {
         id: 'task-002',
@@ -500,6 +532,8 @@ describe('sortTasksByDependencies', () => {
         priority: 'high',
         dependencies: ['task-001'],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       },
     ];
 
@@ -520,6 +554,8 @@ describe('getNextTask', () => {
         priority: 'high',
         dependencies: [],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       },
       {
         id: 'task-002',
@@ -528,6 +564,8 @@ describe('getNextTask', () => {
         priority: 'high',
         dependencies: ['task-001'],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       },
       {
         id: 'task-003',
@@ -536,6 +574,8 @@ describe('getNextTask', () => {
         priority: 'high',
         dependencies: ['task-002'],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       },
     ],
     generatedAt: new Date().toISOString(),
@@ -583,7 +623,9 @@ describe('getNextTask', () => {
           priority: 'high',
           dependencies: ['task-002'],
           acceptanceCriteria: [],
-        },
+        
+        status: 'To Do',
+      },
         {
           id: 'task-002',
           title: 'Task 2',
@@ -591,7 +633,9 @@ describe('getNextTask', () => {
           priority: 'high',
           dependencies: ['task-001'],
           acceptanceCriteria: [],
-        },
+        
+        status: 'To Do',
+      },
       ],
       generatedAt: new Date().toISOString(),
       totalTasks: 2,
@@ -610,10 +654,18 @@ describe('calculateProgress', () => {
     description: 'Test plan',
     overview: '',
     tasks: [
-      { id: 'task-001', title: 'Task 1', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
-      { id: 'task-002', title: 'Task 2', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
-      { id: 'task-003', title: 'Task 3', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
-      { id: 'task-004', title: 'Task 4', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
+      { id: 'task-001', title: 'Task 1', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
+      { id: 'task-002', title: 'Task 2', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
+      { id: 'task-003', title: 'Task 3', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
+      { id: 'task-004', title: 'Task 4', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
     ],
     generatedAt: new Date().toISOString(),
     totalTasks: 4,
@@ -661,9 +713,15 @@ describe('calculateProgress', () => {
       description: 'Test plan',
       overview: '',
       tasks: [
-        { id: 'task-001', title: 'Task 1', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
-        { id: 'task-002', title: 'Task 2', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
-        { id: 'task-003', title: 'Task 3', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
+        { id: 'task-001', title: 'Task 1', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
+        { id: 'task-002', title: 'Task 2', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
+        { id: 'task-003', title: 'Task 3', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
       ],
       generatedAt: new Date().toISOString(),
       totalTasks: 3,
@@ -700,10 +758,18 @@ describe('filterByPriority', () => {
     description: 'Test plan',
     overview: '',
     tasks: [
-      { id: 'task-001', title: 'High task', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
-      { id: 'task-002', title: 'Medium task', description: '', priority: 'medium', dependencies: [], acceptanceCriteria: [] },
-      { id: 'task-003', title: 'Low task', description: '', priority: 'low', dependencies: [], acceptanceCriteria: [] },
-      { id: 'task-004', title: 'Another high task', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
+      { id: 'task-001', title: 'High task', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
+      { id: 'task-002', title: 'Medium task', description: '', priority: 'medium', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
+      { id: 'task-003', title: 'Low task', description: '', priority: 'low', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
+      { id: 'task-004', title: 'Another high task', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
     ],
     generatedAt: new Date().toISOString(),
     totalTasks: 4,
@@ -736,7 +802,9 @@ describe('filterByPriority', () => {
       description: 'Test plan',
       overview: '',
       tasks: [
-        { id: 'task-001', title: 'Medium task', description: '', priority: 'medium', dependencies: [], acceptanceCriteria: [] },
+        { id: 'task-001', title: 'Medium task', description: '', priority: 'medium', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
       ],
       generatedAt: new Date().toISOString(),
       totalTasks: 1,
@@ -762,6 +830,8 @@ describe('filterByTag', () => {
         dependencies: [],
         acceptanceCriteria: [],
         tags: ['backend', 'api'],
+      
+        status: 'To Do',
       },
       {
         id: 'task-002',
@@ -771,6 +841,8 @@ describe('filterByTag', () => {
         dependencies: [],
         acceptanceCriteria: [],
         tags: ['frontend', 'ui'],
+      
+        status: 'To Do',
       },
       {
         id: 'task-003',
@@ -780,6 +852,8 @@ describe('filterByTag', () => {
         dependencies: [],
         acceptanceCriteria: [],
         tags: ['backend', 'database'],
+      
+        status: 'To Do',
       },
       {
         id: 'task-004',
@@ -788,6 +862,8 @@ describe('filterByTag', () => {
         priority: 'high',
         dependencies: [],
         acceptanceCriteria: [],
+      
+        status: 'To Do',
       },
     ],
     generatedAt: new Date().toISOString(),
@@ -827,9 +903,15 @@ describe('getTaskById', () => {
     description: 'Test plan',
     overview: '',
     tasks: [
-      { id: 'task-001', title: 'Task 1', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
-      { id: 'task-002', title: 'Task 2', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
-      { id: 'task-003', title: 'Task 3', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [] },
+      { id: 'task-001', title: 'Task 1', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
+      { id: 'task-002', title: 'Task 2', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
+      { id: 'task-003', title: 'Task 3', description: '', priority: 'high', dependencies: [], acceptanceCriteria: [],
+        status: 'To Do',
+      },
     ],
     generatedAt: new Date().toISOString(),
     totalTasks: 3,
