@@ -272,8 +272,9 @@ async function getStatusesFromGitCommits(
   const statuses = new Map<string, { status: RuntimeTaskStatus; commitHash: string }>();
 
   try {
-    // Use simple-git to read log
-    const { default: simpleGit } = await import('simple-git');
+    // Use simple-git to read log. v4 removed the default export (3.x->4.x
+    // npm audit-critical bump); use the named `simpleGit` (works on both).
+    const { simpleGit } = await import('simple-git');
     const git = simpleGit(projectPath);
 
     const log = await git.log({ maxCount: 100 });
