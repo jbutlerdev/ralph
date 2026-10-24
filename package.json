@@ -19,6 +19,7 @@
     "dev:server": "node --loader ts-node/esm src/server.ts",
     "ralph-executor:build": "cd .claude/skills/ralph-executor && npm run build",
     "test:mcp": "node --loader ts-node/esm tools/test-mcp-server.ts",
+    "test:git": "node --loader ts-node/esm --test src/__tests__/simple-git-v4.test.ts",
     "clean": "rm -rf dist"
   },
   "keywords": [
@@ -39,7 +40,7 @@
     "cors": "^2.8.5",
     "execa": "^9.5.2",
     "express": "^5.2.1",
-    "simple-git": "^3.22.0"
+    "simple-git": "^4.0.2"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

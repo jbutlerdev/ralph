@@ -238,9 +238,11 @@ async function updateStatusFromGit(
   projectPath: string
 ): Promise<void> {
   try {
-    // Try to import simple-git dynamically
+    // Try to import simple-git dynamically. v4 removed the default export
+    // (npm audit-critical bump 3.x->4.x); use the named `simpleGit` factory,
+    // which exists on both 3.x and 4.x.
     const git = await import('simple-git');
-    const gitInstance = git.default(projectPath);
+    const gitInstance = git.simpleGit(projectPath);
 
     // Get commit log
     const log = await gitInstance.log({ maxCount: 100 });

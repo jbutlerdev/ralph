@@ -703,30 +703,40 @@ Make reasonable assumptions and proceed with implementation.`;
       // Continue anyway - changes might already be staged
     }
 
-    // Commit with the formatted message
+    // Commit with the formatted message.
+    // simple-git v4 changed empty-commit semantics: on a clean tree it now
+    // RESOLVES with a falsy `.commit` instead of THROWING a "nothing to
+    // commit" error (as v3 did). Detect the no-op via the result so the
+    // stale HEAD hash is never recorded; keep the catch for genuine commit
+    // errors (which v4 still throws).
+    let commitResult: Awaited<ReturnType<typeof gitInstance.commit>> | null = null;
     try {
-      await gitInstance.commit(commitMessage);
+      commitResult = await gitInstance.commit(commitMessage);
     } catch (error: any) {
-      // Check if it's an "empty commit" type error
-      const errorMsg = error.message || String(error);
-      if (errorMsg.includes('nothing to commit') || errorMsg.includes('no changes added')) {
-        console.warn(`  [WARN] No changes to commit for task ${task.id}`);
-        return;
-      }
       // For other errors, log but don't fail the task
+      const errorMsg = error.message || String(error);
       console.warn(`  [WARN] Failed to commit for task ${task.id}: ${errorMsg}`);
       return;
     }
 
-    // Get the commit hash
-    try {
-      const log = await gitInstance.log({ maxCount: 1 });
-      if (log.latest) {
-        result.commitHash = log.latest.hash;
+    if (!commitResult || !commitResult.commit) {
+      console.warn(`  [WARN] No changes to commit for task ${task.id}`);
+      return;
+    }
+
+    // Get the commit hash — v4 returns the created hash on the commit result.
+    result.commitHash = commitResult.commit;
+    // Fallback for safety: if the result hash is somehow absent, read HEAD.
+    if (!result.commitHash) {
+      try {
+        const log = await gitInstance.log({ maxCount: 1 });
+        if (log.latest) {
+          result.commitHash = log.latest.hash;
+        }
+      } catch (error: any) {
+        // Non-fatal - just warn
+        console.warn(`  [WARN] Failed to get commit hash for task ${task.id}: ${error.message}`);
       }
-    } catch (error: any) {
-      // Non-fatal - just warn
-      console.warn(`  [WARN] Failed to get commit hash for task ${task.id}: ${error.message}`);
     }
   }
 
