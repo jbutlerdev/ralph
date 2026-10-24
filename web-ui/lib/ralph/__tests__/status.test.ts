@@ -18,21 +18,16 @@ import * as path from 'path';
 // Mock fs module
 vi.mock('fs/promises');
 vi.mock('simple-git', () => ({
-  default: async () => ({
-    log: async () => ({
-      all: [
-        {
-          hash: 'abc123',
-          message: '[task-001] First task',
-          date: '2024-01-18T10:00:00.000Z',
-        },
-        {
-          hash: 'def456',
-          message: '[task-002] Second task',
-          date: '2024-01-18T11:00:00.000Z',
-        },
-      ],
-    }),
+  // ralph/web-ui/lib/ralph/status.ts calls the NAMED simpleGit factory
+  // (simple-git v4 removed the default export); mock must expose `simpleGit`,
+  // not `default`, or the stub is missing and status.ts's catch swallows the
+  // TypeError -> getTaskStatus silently returns empty (8 tests went red when
+  // the production call site migrated).
+  // No commits by default: the session-state path is what these fixtures
+  // exercise, and 'no session -> all pending' tests must stay pending.
+  // (A test that wants git-commit-based completion should stub log() itself.)
+  simpleGit: () => ({
+    log: async () => ({ all: [] }),
   }),
 }));
 
@@ -78,7 +73,7 @@ describe('getTaskStatus', () => {
   it('should return pending status for all tasks when no .ralph directory exists', async () => {
     vi.mocked(fs.readdir).mockRejectedValue({ code: 'ENOENT' } as NodeJS.ErrnoException);
 
-    const statusMap = await getTaskStatus(mockPlan, '/test/project');
+    const statusMap = await getTaskStatus(mockPlan, '/test/project', '/test/IMPLEMENTATION_PLAN.md');
 
     expect(statusMap.size).toBe(3);
     expect(statusMap.get('task-001')?.status).toBe('pending'); // No deps, should be pending
@@ -114,7 +109,7 @@ describe('getTaskStatus', () => {
     vi.mocked(fs.readdir).mockResolvedValue(['session-123.json'] as any);
     vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(mockSession) as any);
 
-    const statusMap = await getTaskStatus(mockPlan, '/test/project');
+    const statusMap = await getTaskStatus(mockPlan, '/test/project', '/test/IMPLEMENTATION_PLAN.md');
 
     expect(statusMap.get('task-001')?.status).toBe('completed');
     expect(statusMap.get('task-001')?.dependenciesMet).toBe(true);
@@ -153,7 +148,7 @@ describe('getTaskStatus', () => {
     vi.mocked(fs.readdir).mockResolvedValue(['session-123.json'] as any);
     vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(mockSession) as any);
 
-    const statusMap = await getTaskStatus(mockPlan, '/test/project');
+    const statusMap = await getTaskStatus(mockPlan, '/test/project', '/test/IMPLEMENTATION_PLAN.md');
 
     expect(statusMap.get('task-001')?.status).toBe('completed');
     expect(statusMap.get('task-002')?.status).toBe('failed');
@@ -178,7 +173,7 @@ describe('getTaskStatus', () => {
 
     vi.mocked(fs.readdir).mockRejectedValue({ code: 'ENOENT' } as NodeJS.ErrnoException);
 
-    const statusMap = await getTaskStatus(noDepsPlan, '/test/project');
+    const statusMap = await getTaskStatus(noDepsPlan, '/test/project', '/test/IMPLEMENTATION_PLAN.md');
 
     expect(statusMap.get('task-001')?.status).toBe('pending');
     expect(statusMap.get('task-001')?.dependenciesMet).toBe(true);
@@ -212,7 +207,7 @@ describe('getTaskStatus', () => {
     vi.mocked(fs.readdir).mockResolvedValue(['session-001.json', 'session-002.json'] as any);
     vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(mockSession2) as any);
 
-    const statusMap = await getTaskStatus(mockPlan, '/test/project');
+    const statusMap = await getTaskStatus(mockPlan, '/test/project', '/test/IMPLEMENTATION_PLAN.md');
 
     expect(statusMap.get('task-001')?.status).toBe('completed');
     expect(statusMap.get('task-002')?.status).toBe('completed');
@@ -270,7 +265,7 @@ describe('getPlanStatusSummary', () => {
   it('should calculate summary with all pending tasks', async () => {
     vi.mocked(fs.readdir).mockRejectedValue({ code: 'ENOENT' } as NodeJS.ErrnoException);
 
-    const summary = await getPlanStatusSummary(mockPlan, '/test/project');
+    const summary = await getPlanStatusSummary(mockPlan, '/test/project', '/test/IMPLEMENTATION_PLAN.md');
 
     expect(summary.total).toBe(4);
     expect(summary.completed).toBe(0);
@@ -297,7 +292,7 @@ describe('getPlanStatusSummary', () => {
     vi.mocked(fs.readdir).mockResolvedValue(['session-123.json'] as any);
     vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(mockSession) as any);
 
-    const summary = await getPlanStatusSummary(mockPlan, '/test/project');
+    const summary = await getPlanStatusSummary(mockPlan, '/test/project', '/test/IMPLEMENTATION_PLAN.md');
 
     expect(summary.total).toBe(4);
     expect(summary.completed).toBe(1); // task-001
@@ -323,7 +318,7 @@ describe('getPlanStatusSummary', () => {
     vi.mocked(fs.readdir).mockResolvedValue(['session-123.json'] as any);
     vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(mockSession) as any);
 
-    const summary = await getPlanStatusSummary(mockPlan, '/test/project');
+    const summary = await getPlanStatusSummary(mockPlan, '/test/project', '/test/IMPLEMENTATION_PLAN.md');
 
     expect(summary.completed).toBe(4);
     expect(summary.percentage).toBe(100);
@@ -385,7 +380,7 @@ describe('getTasksByStatus', () => {
     vi.mocked(fs.readdir).mockResolvedValue(['session-123.json'] as any);
     vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(mockSession) as any);
 
-    const completedTasks = await getTasksByStatus(mockPlan, '/test/project', 'completed');
+    const completedTasks = await getTasksByStatus(mockPlan, '/test/project', 'completed', '/test/IMPLEMENTATION_PLAN.md');
 
     expect(completedTasks).toHaveLength(2);
     expect(completedTasks.map(t => t.id)).toContain('task-001');
@@ -408,7 +403,7 @@ describe('getTasksByStatus', () => {
     vi.mocked(fs.readdir).mockResolvedValue(['session-123.json'] as any);
     vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(mockSession) as any);
 
-    const inProgressTasks = await getTasksByStatus(mockPlan, '/test/project', 'in-progress');
+    const inProgressTasks = await getTasksByStatus(mockPlan, '/test/project', 'in-progress', '/test/IMPLEMENTATION_PLAN.md');
 
     expect(inProgressTasks).toHaveLength(1);
     expect(inProgressTasks[0].id).toBe('task-002');
@@ -430,7 +425,7 @@ describe('getTasksByStatus', () => {
     vi.mocked(fs.readdir).mockResolvedValue(['session-123.json'] as any);
     vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(mockSession) as any);
 
-    const blockedTasks = await getTasksByStatus(mockPlan, '/test/project', 'blocked');
+    const blockedTasks = await getTasksByStatus(mockPlan, '/test/project', 'blocked', '/test/IMPLEMENTATION_PLAN.md');
 
     expect(blockedTasks).toHaveLength(1);
     expect(blockedTasks[0].id).toBe('task-002');
@@ -473,7 +468,7 @@ describe('getCurrentSession', () => {
     vi.mocked(fs.readdir).mockResolvedValue(['session-123.json'] as any);
     vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(mockSession) as any);
 
-    const session = await getCurrentSession('/test/project');
+    const session = await getCurrentSession('/test/project', '/test/IMPLEMENTATION_PLAN.md');
 
     expect(session).toEqual(mockSession);
   });
@@ -481,7 +476,7 @@ describe('getCurrentSession', () => {
   it('should return null when no sessions exist', async () => {
     vi.mocked(fs.readdir).mockResolvedValue([] as any);
 
-    const session = await getCurrentSession('/test/project');
+    const session = await getCurrentSession('/test/project', '/test/IMPLEMENTATION_PLAN.md');
 
     expect(session).toBeNull();
   });
@@ -489,7 +484,7 @@ describe('getCurrentSession', () => {
   it('should return null when sessions directory does not exist', async () => {
     vi.mocked(fs.readdir).mockRejectedValue({ code: 'ENOENT' } as NodeJS.ErrnoException);
 
-    const session = await getCurrentSession('/test/project');
+    const session = await getCurrentSession('/test/project', '/test/IMPLEMENTATION_PLAN.md');
 
     expect(session).toBeNull();
   });
